@@ -151,7 +151,14 @@ __pycache__/
 node_modules/
 dist/
 unpackage/
+.env.local
+.env.*.local
 
 # 系统与编辑器缓存
 .DS_Store
 .vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

@@ -34,7 +34,7 @@ const catList = ref([]);
 // 获取数据的函数
 const fetchCats = () => {
   uni.request({
-    url: 'http://127.0.0.1:5000/api/cats', // 我们刚才写的 Flask 接口
+    url: 'http://10.128.9.72:5000/api/cats', // 我们刚才写的 Flask 接口
     method: 'GET',
     success: (res) => {
       if (res.data && res.data.status === 'success') {

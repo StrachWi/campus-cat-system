@@ -1,6 +1,8 @@
+import os
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
+from werkzeug.utils import secure_filename  # 核心：用来安全处理图片文件名
 from datetime import datetime
 
 app = Flask(__name__)
@@ -11,6 +13,11 @@ app.config["SQLALCHEMY_DATABASE_URI"] = (
 )
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db = SQLAlchemy(app)
+
+UPLOAD_FOLDER = os.path.join(os.getcwd(), "static", "uploads")
+if not os.path.exists(UPLOAD_FOLDER):
+    os.makedirs(UPLOAD_FOLDER)  # 如果没有这个文件夹，系统会自动帮你建一个
+app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 
 
 class Cat(db.Model):
@@ -83,37 +90,52 @@ def init_db():
     )
 
 
-@app.route("/api/cats", methods=["GET"])
-def get_cats():
-    cats = Cat.query.filter_by(audit_status="published").all()
-    return jsonify({"status": "success", "data": [c.to_dict() for c in cats]})
+# === 终极版：同时处理获取(GET)和带图片的新增(POST) ===
+@app.route("/api/cats", methods=["GET", "POST"])
+def handle_cats():
+    # 1. 首页获取猫咪列表 (GET) 保持不变
+    if request.method == "GET":
+        cats = Cat.query.filter_by(audit_status="published").all()
+        return jsonify({"status": "success", "data": [c.to_dict() for c in cats]})
 
+    # 2. 接收包含图片的表单 (POST)
+    if request.method == "POST":
+        # 因为带了文件，必须用 request.form 来接文字数据
+        name = request.form.get("name")
+        color = request.form.get("color")
+        gender = request.form.get("gender")
+        location = request.form.get("location")
+        character_desc = request.form.get("character_desc")
+        health_status = request.form.get("health_status")
 
-# 核心接口升级：处理认领与取消，并校验身份
-@app.route("/api/cats/<int:cat_id>/feed", methods=["POST"])
-def add_cat():
-    # 接收前端传来的 JSON 数据
-    data = request.json
+        # 默认占位图（万一没传图片兜底用）
+        final_avatar_url = "https://images.unsplash.com/photo-1514888286974-6c03e2ca1dba?w=600&h=400&fit=crop"
 
-    # 组装一只新的猫咪模型
-    new_cat = Cat(
-        name=data.get("name"),
-        color=data.get("color"),
-        gender=data.get("gender"),
-        location=data.get("location"),
-        character_desc=data.get("character_desc"),
-        health_status=data.get("health_status"),
-        # 图片暂时给个默认的占位图，后续我们再专门攻克真实文件上传
-        avatar_url="https://images.unsplash.com/photo-1514888286974-6c03e2ca1dba?w=600&h=400&fit=crop",
-        # 新提报的猫咪默认是待审核状态
-        audit_status="pending",
-    )
+        # 核心：拆包拿图片文件
+        image_file = request.files.get("image")
+        if image_file and image_file.filename != "":
+            # 净化文件名（防止特殊字符黑客攻击）
+            filename = secure_filename(image_file.filename)
+            # 拼出文件要存放在你电脑里的绝对路径
+            save_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+            # 物理保存到文件夹里！
+            image_file.save(save_path)
+            # 生成可以通过浏览器访问的图片网址
+            final_avatar_url = f"http://192.168.43.202:5000/static/uploads/{filename}"
 
-    # 塞进数据库并保存
-    db.session.add(new_cat)
-    db.session.commit()
-
-    return jsonify({"status": "success", "message": "档案提报成功，等待审核！"})
+        new_cat = Cat(
+            name=name,
+            color=color,
+            gender=gender,
+            location=location,
+            character_desc=character_desc,
+            health_status=health_status,
+            avatar_url=final_avatar_url,  # 存入真实的图片链接
+            audit_status="pending",
+        )
+        db.session.add(new_cat)
+        db.session.commit()
+        return jsonify({"status": "success", "message": "档案及图片提报成功！"})
 
 
 def feed_cat(cat_id):
@@ -160,26 +182,28 @@ def feed_cat(cat_id):
 
 
 # 1. 获取所有待审核的猫咪列表
-@app.route("/api/admin/pending", methods=["GET"])
+@app.route("/api/admin/pending_cats", methods=["GET"])
 def get_pending_cats():
-    # 只查询状态为 pending 的猫咪
+    # 去数据库里捞出所有状态为 'pending' 的猫咪
     cats = Cat.query.filter_by(audit_status="pending").all()
     return jsonify({"status": "success", "data": [c.to_dict() for c in cats]})
 
 
-# 2. 执行审核操作 (通过或删除)
-@app.route("/api/admin/approve/<int:cat_id>", methods=["POST"])
-def approve_cat(cat_id):
+# 2. 处理审核通过(pass)或打回(reject)
+@app.route("/api/admin/review_cat", methods=["POST"])
+def review_cat():
     data = request.json
-    action = data.get("action")  # 'pass' 或 'reject'
+    cat_id = data.get("cat_id")
+    action = data.get("action")
+
     cat = Cat.query.get_or_404(cat_id)
 
     if action == "pass":
-        cat.audit_status = "published"
-        message = f"【{cat.name}】已成功发布到首页"
-    else:
-        db.session.delete(cat)
-        message = f"已拒绝并删除【{cat.name}】的申请"
+        cat.audit_status = "published"  # 改为已发布状态，首页就能看到了！
+        message = "已通过审核"
+    elif action == "reject":
+        db.session.delete(cat)  # 垃圾数据直接从数据库删除
+        message = "已打回并删除"
 
     db.session.commit()
     return jsonify({"status": "success", "message": message})

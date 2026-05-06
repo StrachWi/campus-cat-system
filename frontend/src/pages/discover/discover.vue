@@ -92,7 +92,7 @@ const chooseImage = () => {
   });
 };
 
-// 提交表单逻辑
+// 提交表单逻辑 (带真实图片上传)
 const submitForm = () => {
   // 1. 基础校验
   if (!formData.value.name || !formData.value.location || !formData.value.character_desc) {
@@ -106,23 +106,26 @@ const submitForm = () => {
 
   uni.showLoading({ title: '提交中...' });
 
-  // 2. 真实发送请求给 Python 后端
-  uni.request({
+  // 2. 真实发送包含【图片文件】和【文字】的请求
+  uni.uploadFile({
     url: 'http://192.168.43.202:5000/api/cats', // 你的后端地址
-    method: 'POST',
-    data: {
+    filePath: formData.value.tempImagePath,     // 手机相册里选中的照片路径
+    name: 'image',                              // 名字必须叫 'image'，和后端代码对应
+    formData: {
       name: formData.value.name,
       color: formData.value.color,
       gender: formData.value.gender,
       location: formData.value.location,
       character_desc: formData.value.character_desc,
       health_status: formData.value.health_status
-      // 注意：图片文件我们暂时没放在 data 里，后端会自动补齐占位图
     },
     success: (res) => {
       uni.hideLoading();
-      if (res.data.status === 'success') {
-        uni.showToast({ title: '提报成功，等待老师审核！', icon: 'success' });
+      // 注意：uploadFile 返回的 res.data 默认是字符串，必须转成 JSON 才能用
+      let data = JSON.parse(res.data);
+      
+      if (data.status === 'success') {
+        uni.showToast({ title: '带图提报成功！', icon: 'success' });
         // 延迟 1.5 秒后自动退回首页
         setTimeout(() => { uni.navigateBack(); }, 1500);
       } else {
@@ -132,7 +135,7 @@ const submitForm = () => {
     fail: (err) => {
       uni.hideLoading();
       console.error(err);
-      uni.showToast({ title: '网络开小差啦，连接不到服务器', icon: 'none' });
+      uni.showToast({ title: '上传失败，请检查网络', icon: 'none' });
     }
   });
 };

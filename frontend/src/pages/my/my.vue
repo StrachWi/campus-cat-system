@@ -88,8 +88,7 @@ const showFeatureToast = () => {
 };
 
 const goToAdmin = () => {
-  // 留出跳转审核页面的坑位
-  // uni.navigateTo({ url: '/pages/admin/admin' });
+  uni.navigateTo({ url: '/pages/admin/admin' });
   uni.showToast({
     title: '即将前往审核端',
     icon: 'success'

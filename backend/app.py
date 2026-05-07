@@ -138,6 +138,7 @@ def handle_cats():
         return jsonify({"status": "success", "message": "档案及图片提报成功！"})
 
 
+@app.route("/api/cats/<int:cat_id>/feed", methods=["POST"])
 def feed_cat(cat_id):
     data = request.json
     meal = data.get("meal")  # morning, noon, evening
@@ -207,6 +208,37 @@ def review_cat():
 
     db.session.commit()
     return jsonify({"status": "success", "message": message})
+
+
+# 3. 删除已发布的猫咪
+@app.route("/api/admin/delete_cat", methods=["POST"])
+def delete_cat():
+    data = request.json
+    cat_id = data.get("cat_id")
+    cat = Cat.query.get_or_404(cat_id)
+
+    db.session.delete(cat)  # 物理删除
+    db.session.commit()
+    return jsonify({"status": "success", "message": "该记录已彻底删除"})
+
+
+# 4. 修改猫咪基本信息
+@app.route("/api/admin/update_cat", methods=["POST"])
+def update_cat():
+    data = request.json
+    cat_id = data.get("cat_id")
+    cat = Cat.query.get_or_404(cat_id)
+
+    # 老师可以修改名字、地点和性格
+    if "name" in data:
+        cat.name = data["name"]
+    if "location" in data:
+        cat.location = data["location"]
+    if "character_desc" in data:
+        cat.character_desc = data["character_desc"]
+
+    db.session.commit()
+    return jsonify({"status": "success", "message": "信息修改成功！"})
 
 
 if __name__ == "__main__":

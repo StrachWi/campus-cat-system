@@ -60,7 +60,7 @@ import { onLoad, onShow } from '@dcloudio/uni-app';
 
 const catId = ref(null);
 const catInfo = ref({});
-const myUserId = ref('');
+const myUserId = ref('student_001');
 const mealNameMap = { morning: '早餐', noon: '午餐', evening: '晚餐' };
 
 // 模拟登录：给当前设备发一个唯一的身份证号
@@ -110,7 +110,7 @@ const handleFeedAction = (meal, action) => {
     success: (res) => {
       if (res.confirm) {
         uni.request({
-          // 向后端的 feed 接口发送真实的认领请求
+          // 注意：这里的 IP 地址一定要确保是你电脑现在的 IP
           url: `http://192.168.43.202:5000/api/cats/${catId.value}/feed`,
           method: 'POST',
           data: { 
@@ -119,13 +119,17 @@ const handleFeedAction = (meal, action) => {
             user_id: myUserId.value 
           },
           success: (res) => {
-            if (res.data.status === 'success') {
+            if (res.data && res.data.status === 'success') {
               uni.showToast({ title: '操作成功', icon: 'success' });
-              // 核心：把后端返回的最新认领人赋值给当前页面，页面会瞬间变化！
+              // 关键：手动更新本地数据，让页面按钮立刻变样
+              if (!catInfo.value.feed_status) catInfo.value.feed_status = {};
               catInfo.value.feed_status[meal] = res.data.new_claimer;
             } else {
-              uni.showToast({ title: res.data.message, icon: 'none' });
+              uni.showToast({ title: '服务器忙，请重试', icon: 'none' });
             }
+          },
+          fail: () => {
+            uni.showToast({ title: '网络连接失败', icon: 'none' });
           }
         });
       }

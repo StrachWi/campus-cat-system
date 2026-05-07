@@ -1,41 +1,71 @@
 <template>
   <view class="admin-container">
-    <!-- 顶部标题区 (体现内部审查性质) -->
     <view class="admin-header">
-      <text class="title">📋 学术审查与内部管理端</text>
-      <text class="subtitle">待审核的系统录入测试数据</text>
+      <text class="title">教师/管理员控制台</text>
+      <text class="subtitle">校园猫咪信息管控中心</text>
     </view>
 
-    <!-- 空状态：如果没有待审核的数据 -->
-    <view class="empty-state" v-if="pendingCats.length === 0">
-      <text class="empty-icon">☕</text>
-      <text class="empty-text">当前无待审核的录入数据，老师辛苦了！</text>
+    <!-- 顶部的两个选项卡 -->
+    <view class="tabs-container">
+      <view :class="['tab-item', currentTab === 'pending' ? 'active-tab' : '']" @click="currentTab = 'pending'">待审核</view>
+      <view :class="['tab-item', currentTab === 'published' ? 'active-tab' : '']" @click="currentTab = 'published'">已发布(管理)</view>
     </view>
 
-    <!-- 待审核列表容器开始 -->
-    <view class="cat-list" v-else>
-      <!-- 列表项：每一只待审核的猫咪 -->
-      <view class="review-card" v-for="cat in pendingCats" :key="cat.id">
-        <view class="cat-info-row">
-          <image class="cat-avatar" :src="cat.avatar_url" mode="aspectFill"></image>
-          <view class="cat-details">
-            <view class="name-line">
+    <view class="cat-list">
+      <!-- 列表A：待审核的猫咪 -->
+      <view v-show="currentTab === 'pending'">
+        <view v-if="pendingCats.length === 0" class="empty-state">
+          <text class="empty-text">当前没有待审核的数据~</text>
+        </view>
+        <view class="review-card" v-for="cat in pendingCats" :key="cat.id">
+          <view class="cat-info-row">
+            <image class="cat-avatar" :src="cat.avatar_url" mode="aspectFill"></image>
+            <view class="cat-details">
               <text class="cat-name">{{ cat.name }}</text>
-              <text class="gender-tag">{{ cat.gender }}</text>
+              <text class="cat-desc">📍 {{ cat.location }}</text>
+              <text class="cat-desc">📝 {{ cat.character_desc }}</text>
             </view>
-            <text class="cat-desc">📍 地点：{{ cat.location }}</text>
-            <text class="cat-desc">📝 性格：{{ cat.character_desc }}</text>
+          </view>
+          <view class="action-row">
+            <button class="btn reject-btn" @click="handleReview(cat.id, 'reject')">打回删除</button>
+            <button class="btn pass-btn" @click="handleReview(cat.id, 'pass')">审核通过</button>
           </view>
         </view>
+      </view>
 
-        <!-- 操作按钮区 -->
-        <view class="action-row">
-          <button class="btn reject-btn" @click="handleReview(cat.id, 'reject')">打回删除</button>
-          <button class="btn pass-btn" @click="handleReview(cat.id, 'pass')">审核通过</button>
+      <!-- 列表B：已发布的猫咪（具备删改功能） -->
+      <view v-show="currentTab === 'published'">
+        <view class="review-card" v-for="cat in publishedCats" :key="cat.id">
+          <view class="cat-info-row">
+            <image class="cat-avatar" :src="cat.avatar_url" mode="aspectFill"></image>
+            <view class="cat-details">
+              <text class="cat-name">{{ cat.name }} (已发布)</text>
+              <text class="cat-desc">📍 {{ cat.location }}</text>
+              <text class="cat-desc">📝 {{ cat.character_desc }}</text>
+            </view>
+          </view>
+          <view class="action-row">
+            <button class="btn reject-btn" @click="handleDelete(cat.id)">下架并删除</button>
+            <button class="btn pass-btn" @click="openEditModal(cat)">修改信息</button>
+          </view>
         </view>
       </view>
-      
     </view>
+
+    <!-- 修改信息的隐藏弹窗 -->
+    <view class="modal-mask" v-if="showEditModal">
+      <view class="edit-modal">
+        <text class="modal-title">修改基本信息</text>
+        <input class="edit-input" v-model="editForm.name" placeholder="猫咪名字" />
+        <input class="edit-input" v-model="editForm.location" placeholder="常出没地点" />
+        <input class="edit-input" v-model="editForm.character_desc" placeholder="性格描述" />
+        <view class="modal-footer">
+          <button class="btn reject-btn" @click="showEditModal = false">取消</button>
+          <button class="btn pass-btn" @click="submitEdit">保存</button>
+        </view>
+      </view>
+    </view>
+
   </view>
 </template>
 
@@ -43,81 +73,114 @@
 import { ref } from 'vue';
 import { onShow } from '@dcloudio/uni-app';
 
+const currentTab = ref('pending'); // 当前激活的Tab，默认待审核
 const pendingCats = ref([]);
-// 向后端请求待审核(pending)的猫咪数据
+const publishedCats = ref([]);
+
+// 弹窗相关变量
+const showEditModal = ref(false);
+const editForm = ref({ id: '', name: '', location: '', character_desc: '' });
+
+// 1. 获取待审核数据
 const fetchPendingCats = () => {
   uni.request({
-    url: 'http://192.168.43.202:5000/api/admin/pending_cats', 
-    method: 'GET',
-    success: (res) => {
-      if (res.data && res.data.status === 'success') {
-        let data = res.data.data;
-        data.forEach(cat => {
-          if (!cat.avatar_url) {
-             // 默认占位图
-            cat.avatar_url = 'https://images.unsplash.com/photo-1514888286974-6c03e2ca1dba?w=200&h=200&fit=crop';
-          }
-        });
-        pendingCats.value = data;
-      }
+    url: 'http://192.168.43.202:5000/api/admin/pending_cats',
+    success: (res) => { if (res.data?.status === 'success') pendingCats.value = res.data.data; }
+  });
+};
+
+// 2. 获取已发布数据 (借用首页的接口)
+const fetchPublishedCats = () => {
+  uni.request({
+    url: 'http://192.168.43.202:5000/api/cats',
+    success: (res) => { if (res.data?.status === 'success') publishedCats.value = res.data.data; }
+  });
+};
+
+// 3. 处理审核 (旧功能)
+const handleReview = (id, action) => {
+  uni.request({
+    url: 'http://192.168.43.202:5000/api/admin/review_cat', method: 'POST', data: { cat_id: id, action: action },
+    success: () => {
+      uni.showToast({ title: '操作成功' });
+      fetchPendingCats(); // 刷新待审核列表
+      fetchPublishedCats(); // 刷新已发布列表
     }
   });
 };
 
-// 页面每次显示时，自动执行拉取
-onShow(() => {
-  fetchPendingCats();
-});
-// 处理审核操作：通过(pass) 或 打回(reject)
-const handleReview = (id, action) => {
-  const actionText = action === 'pass' ? '通过' : '打回删除';
-  
+// 4. 删除已发布的猫咪 (新功能)
+const handleDelete = (id) => {
   uni.showModal({
-    title: '审核确认',
-    content: `确定要${actionText}这条录入数据吗？`,
+    title: '极其危险的操作', content: '确定要彻底删除这只猫咪的档案吗？',
     success: (res) => {
       if (res.confirm) {
         uni.request({
-          url: 'http://192.168.43.202:5000/api/admin/review_cat',
-          method: 'POST',
-          data: { cat_id: id, action: action },
-          success: (reviewRes) => {
-            if (reviewRes.data?.status === 'success') {
-              uni.showToast({ title: `已${actionText}`, icon: 'success' });
-              // 操作成功后重新拉取列表，该猫咪会自动从列表中消失
-              fetchPendingCats();
-            } else {
-              uni.showToast({ title: reviewRes.data?.message || '操作失败', icon: 'none' });
-            }
-          }
+          url: 'http://192.168.43.202:5000/api/admin/delete_cat', method: 'POST', data: { cat_id: id },
+          success: () => { uni.showToast({ title: '已彻底删除' }); fetchPublishedCats(); }
         });
       }
     }
   });
 };
+
+// 5. 打开修改弹窗 (新功能)
+const openEditModal = (cat) => {
+  editForm.value = { id: cat.id, name: cat.name, location: cat.location, character_desc: cat.character_desc };
+  showEditModal.value = true;
+};
+
+// 6. 提交修改并保存到数据库 (新功能)
+const submitEdit = () => {
+  uni.request({
+    url: 'http://192.168.43.202:5000/api/admin/update_cat', method: 'POST',
+    data: { cat_id: editForm.value.id, name: editForm.value.name, location: editForm.value.location, character_desc: editForm.value.character_desc },
+    success: () => {
+      uni.showToast({ title: '信息已更新' });
+      showEditModal.value = false;
+      fetchPublishedCats(); // 刷新列表看最新效果
+    }
+  });
+};
+
+// 每次进入页面时，把两边的数据都拉取一次
+onShow(() => { fetchPendingCats(); fetchPublishedCats(); });
 </script>
+
 <style scoped>
 .admin-container { min-height: 100vh; background-color: #f5f7fa; padding-bottom: 30px; }
-.admin-header { background: linear-gradient(135deg, #4facfe, #00f2fe); padding: 50px 20px 25px; border-radius: 0 0 24px 24px; margin-bottom: 15px; }
+.admin-header { background: linear-gradient(135deg, #4facfe, #00f2fe); padding: 50px 20px 15px; }
 .title { display: block; font-size: 20px; font-weight: bold; color: #fff; margin-bottom: 5px; }
 .subtitle { font-size: 13px; color: rgba(255,255,255,0.8); }
 
-.empty-state { display: flex; flex-direction: column; align-items: center; padding-top: 100px; }
-.empty-icon { font-size: 50px; margin-bottom: 15px; }
+/* 选项卡样式 */
+.tabs-container { display: flex; background: #fff; padding: 0 20px; border-radius: 0 0 20px 20px; margin-bottom: 15px; box-shadow: 0 2px 10px rgba(0,0,0,0.03); }
+.tab-item { flex: 1; text-align: center; padding: 15px 0; font-size: 15px; color: #666; font-weight: bold; position: relative; }
+.active-tab { color: #4facfe; }
+.active-tab::after { content: ''; position: absolute; bottom: 0; left: 30%; width: 40%; height: 3px; background-color: #4facfe; border-radius: 3px; }
+
+.empty-state { text-align: center; padding: 50px 0; }
 .empty-text { color: #999; font-size: 14px; }
 
+/* 列表卡片样式 */
 .cat-list { padding: 0 15px; }
 .review-card { background: #fff; border-radius: 16px; padding: 16px; margin-bottom: 15px; box-shadow: 0 2px 10px rgba(0,0,0,0.03); }
 .cat-info-row { display: flex; margin-bottom: 15px; }
 .cat-avatar { width: 70px; height: 70px; border-radius: 10px; margin-right: 15px; background-color: #eee; }
-.cat-details { flex: 1; display: flex; flex-direction: column; justify-content: flex-start;}
-.name-line { display: flex; align-items: center; margin-bottom: 6px; }
-.cat-name { font-size: 18px; font-weight: bold; color: #333; margin-right: 8px; }
-.gender-tag { font-size: 12px; background: #f0f2f5; color: #666; padding: 2px 6px; border-radius: 4px; }
-.cat-desc { font-size: 13px; color: #666; margin-bottom: 4px; }
+.cat-details { flex: 1; display: flex; flex-direction: column; justify-content: space-around; }
+.cat-name { font-size: 18px; font-weight: bold; color: #333; }
+.cat-desc { font-size: 13px; color: #666; }
 
 .action-row { display: flex; justify-content: flex-end; gap: 12px; border-top: 1px solid #f9f9f9; padding-top: 12px; }
 .btn { margin: 0; font-size: 13px; border-radius: 20px; padding: 0 20px; height: 32px; line-height: 32px; }
 .reject-btn { background-color: #fff; color: #f56c6c; border: 1px solid #f56c6c; }
 .pass-btn { background-color: #4facfe; color: #fff; }
+
+/* 弹窗样式 */
+.modal-mask { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0,0,0,0.5); z-index: 999; display: flex; align-items: center; justify-content: center; }
+.edit-modal { background-color: #fff; width: 80%; border-radius: 16px; padding: 20px; }
+.modal-title { display: block; font-size: 18px; font-weight: bold; text-align: center; margin-bottom: 20px; }
+.edit-input { background: #f5f7fa; border-radius: 8px; padding: 10px; margin-bottom: 15px; font-size: 14px; }
+.modal-footer { display: flex; justify-content: space-between; gap: 15px; margin-top: 10px; }
+.modal-footer .btn { flex: 1; }
 </style>

@@ -23,7 +23,6 @@
         <view class="feed-progress-box">
           <text class="progress-title">今日干饭排班：</text>
           <view class="progress-bar">
-            <!-- 注意这里：只要字符串不为空（有人认领），就判定为 fed -->
             <view :class="['segment', cat.feed_status?.morning ? 'fed' : 'hungry']"><text>早</text></view>
             <view :class="['segment', cat.feed_status?.noon ? 'fed' : 'hungry']"><text>中</text></view>
             <view :class="['segment', cat.feed_status?.evening ? 'fed' : 'hungry']"><text>晚</text></view>
@@ -32,7 +31,7 @@
       </view>
     </view>
 
-    <!-- 弹窗部分保持不变 -->
+    <!-- 弹窗部分 -->
     <view class="modal-mask" v-if="showFilter" @click="showFilter = false">
       <view class="modal-content" @click.stop>
         <view class="modal-header">
@@ -59,9 +58,7 @@ const catList = ref([]);
 const showFilter = ref(false);
 const selectedMeals = ref([]);
 
-const goToDiscover = () => {
-  uni.navigateTo({ url: '/pages/discover/discover' });
-};
+const goToDiscover = () => { uni.navigateTo({ url: '/pages/discover/discover' }); };
 
 const fetchCats = () => {
   uni.request({
@@ -71,8 +68,10 @@ const fetchCats = () => {
       if (res.data?.status === 'success') {
         let data = res.data.data;
         data.forEach((cat) => {
-          // 只保留图片的占位，绝对不再写死 feed_status！全靠后端给的真实数据
-          cat.avatar_url = 'https://images.unsplash.com/photo-1514888286974-6c03e2ca1dba?w=200&h=200&fit=crop';
+          // ✅ 核心修复：加了 if 判断！只有当没有真实图片时，才使用默认图片兜底
+          if (!cat.avatar_url) {
+            cat.avatar_url = 'https://images.unsplash.com/photo-1514888286974-6c03e2ca1dba?w=200&h=200&fit=crop';
+          }
         });
         catList.value = data;
       }
@@ -99,12 +98,10 @@ const displayCatList = computed(() => {
 
 const goToDetail = (id) => { uni.navigateTo({ url: `/pages/detail/detail?id=${id}` }); };
 
-// 核心改动：使用 onShow 替代 onMounted，每次回到首页都会重新拉取数据
 onShow(() => { fetchCats(); });
 </script>
 
 <style scoped>
-/* 样式保持不变 */
 .container { min-height: 100vh; background-color: #f5f7fa; padding: 12px; }
 .top-action-bar { display: flex; justify-content: space-between; align-items: center; background-color: #fff; padding: 12px 16px; border-radius: 12px; margin-bottom: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.03); }
 .discover-btn { background-color: #fff3e0; color: #ff8c00; padding: 6px 12px; border-radius: 20px; font-weight: bold; font-size: 14px; display: flex; align-items: center; }

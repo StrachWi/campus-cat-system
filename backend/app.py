@@ -210,16 +210,24 @@ def review_cat():
     return jsonify({"status": "success", "message": message})
 
 
-# 3. 删除已发布的猫咪
 @app.route("/api/admin/delete_cat", methods=["POST"])
 def delete_cat():
     data = request.json
     cat_id = data.get("cat_id")
     cat = Cat.query.get_or_404(cat_id)
 
-    db.session.delete(cat)  # 物理删除
+    if cat.avatar_url:
+        file_name = cat.avatar_url.split("/")[-1]
+        file_path = os.path.join(app.root_path, "static", "uploads", file_name)
+
+        if os.path.exists(file_path):
+            os.remove(file_path)
+
+    # 再删数据库记录
+    db.session.delete(cat)
     db.session.commit()
-    return jsonify({"status": "success", "message": "该记录已彻底删除"})
+
+    return jsonify({"status": "success", "message": "该记录已彻底删除，本地图片已清理"})
 
 
 # 4. 修改猫咪基本信息

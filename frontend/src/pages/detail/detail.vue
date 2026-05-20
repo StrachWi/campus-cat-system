@@ -1,6 +1,6 @@
 <template>
   <view class="detail-container">
-    <image class="main-image" :src="catInfo.avatar_url" mode="aspectFill"></image>
+    <image :src="catInfo.avatar_url" mode="aspectFill"></image>
 
     <view class="info-section" v-if="catInfo.name">
       <view class="header-row">
@@ -13,7 +13,6 @@
         <text class="tag">健康：{{ catInfo.health_status }}</text>
       </view>
       
-      <!-- 你的优美排版 -->
       <view class="desc-box">
         <text class="label">性格特征：</text>
         <text class="desc-content">{{ catInfo.character_desc || '暂无描述' }}</text>
@@ -25,7 +24,6 @@
       </view>
     </view>
 
-    <!-- 喂养计划板块 -->
     <view class="action-section" v-if="catInfo.feed_status">
       <view class="section-title">
         <text>🍱 今日喂养计划</text>
@@ -34,20 +32,15 @@
       
       <view class="meal-plan">
         <view class="meal-item" v-for="meal in ['morning', 'noon', 'evening']" :key="meal">
-          
           <view class="meal-info">
             <text class="meal-name">{{ mealNameMap[meal] }}</text>
-            <!-- 核心逻辑：判断后端的 user_id -->
             <text v-if="!catInfo.feed_status[meal]" class="meal-status status-pending">⌛ 待认领</text>
             <text v-else-if="catInfo.feed_status[meal] === myUserId" class="meal-status status-mine">✅ 我已认领</text>
             <text v-else class="meal-status status-others">🔒 已被其他爱心人士认领</text>
           </view>
-
-          <!-- 动态按钮 -->
           <button v-if="!catInfo.feed_status[meal]" class="action-btn claim-btn" @click="handleFeedAction(meal, 'claim')">认领</button>
           <button v-else-if="catInfo.feed_status[meal] === myUserId" class="action-btn cancel-btn" @click="handleFeedAction(meal, 'cancel')">取消</button>
           <button v-else class="action-btn disabled-btn" disabled>已被认领</button>
-
         </view>
       </view>
     </view>
@@ -63,7 +56,6 @@ const catInfo = ref({});
 const myUserId = ref('student_001');
 const mealNameMap = { morning: '早餐', noon: '午餐', evening: '晚餐' };
 
-// 模拟登录：给当前设备发一个唯一的身份证号
 const initUserId = () => {
   let uid = uni.getStorageSync('mock_user_id');
   if (!uid) {
@@ -78,7 +70,6 @@ onLoad((options) => {
   initUserId();
 });
 
-// 每次进入详情页都重新拿最新数据
 onShow(() => {
   if (catId.value) fetchCatDetail();
 });
@@ -92,7 +83,9 @@ const fetchCatDetail = () => {
         const allCats = res.data.data;
         const targetCat = allCats.find(c => c.id == catId.value);
         if (targetCat) {
-          targetCat.avatar_url = 'https://images.unsplash.com/photo-1514888286974-6c03e2ca1dba?w=600&h=400&fit=crop';
+          if (targetCat.avatar_url && !targetCat.avatar_url.startsWith('http')) {
+            targetCat.avatar_url = 'http://192.168.43.202:5000' + targetCat.avatar_url;
+          }
           catInfo.value = targetCat;
         }
       }
@@ -110,7 +103,6 @@ const handleFeedAction = (meal, action) => {
     success: (res) => {
       if (res.confirm) {
         uni.request({
-          // 注意：这里的 IP 地址一定要确保是你电脑现在的 IP
           url: `http://192.168.43.202:5000/api/cats/${catId.value}/feed`,
           method: 'POST',
           data: { 
@@ -121,7 +113,6 @@ const handleFeedAction = (meal, action) => {
           success: (res) => {
             if (res.data && res.data.status === 'success') {
               uni.showToast({ title: '操作成功', icon: 'success' });
-              // 关键：手动更新本地数据，让页面按钮立刻变样
               if (!catInfo.value.feed_status) catInfo.value.feed_status = {};
               catInfo.value.feed_status[meal] = res.data.new_claimer;
             } else {
@@ -147,7 +138,6 @@ const handleFeedAction = (meal, action) => {
 .tag-row { display: flex; gap: 8px; margin-bottom: 15px; }
 .tag { background-color: #f0f2f5; color: #666; padding: 4px 10px; border-radius: 6px; font-size: 12px; }
 
-/* 调整为你截图里的上下排版 */
 .desc-box { background: #fff9f0; padding: 12px; border-radius: 8px; margin-bottom: 12px; }
 .label { color: #999; font-size: 14px; }
 .desc-content { font-size: 14px; color: #ff8c00; font-style: italic; margin-left: 5px; }

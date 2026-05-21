@@ -53,24 +53,24 @@ import { onLoad, onShow } from '@dcloudio/uni-app';
 
 const catId = ref(null);
 const catInfo = ref({});
-const myUserId = ref('student_001');
+const myUserId = ref(null);
 const mealNameMap = { morning: '早餐', noon: '午餐', evening: '晚餐' };
 
 const initUserId = () => {
-  let uid = uni.getStorageSync('mock_user_id');
-  if (!uid) {
-    uid = 'user_' + Math.random().toString(36).substr(2, 9);
-    uni.setStorageSync('mock_user_id', uid);
+  let uid = uni.getStorageSync('real_user_id');
+  if (uid) {
+    myUserId.value = String(uid);
+  } else {
+    myUserId.value = null;
   }
-  myUserId.value = uid;
 };
 
 onLoad((options) => {
   catId.value = options.id;
-  initUserId();
 });
 
 onShow(() => {
+  initUserId();
   if (catId.value) fetchCatDetail();
 });
 
@@ -94,6 +94,11 @@ const fetchCatDetail = () => {
 };
 
 const handleFeedAction = (meal, action) => {
+  if (!myUserId.value) {
+    uni.navigateTo({ url: '/pages/login/login' });
+    return;
+  }
+
   const isClaim = action === 'claim';
   const actionText = isClaim ? '认领' : '取消认领';
 
@@ -116,7 +121,7 @@ const handleFeedAction = (meal, action) => {
               if (!catInfo.value.feed_status) catInfo.value.feed_status = {};
               catInfo.value.feed_status[meal] = res.data.new_claimer;
             } else {
-              uni.showToast({ title: '服务器忙，请重试', icon: 'none' });
+              uni.showToast({ title: '服务器忙', icon: 'none' });
             }
           },
           fail: () => {

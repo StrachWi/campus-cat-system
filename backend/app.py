@@ -2,8 +2,8 @@ import os
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
-from werkzeug.utils import secure_filename  # 核心：用来安全处理图片文件名
-from datetime import datetime
+from werkzeug.utils import secure_filename
+from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
 CORS(app)
@@ -16,8 +16,15 @@ db = SQLAlchemy(app)
 
 UPLOAD_FOLDER = os.path.join(os.getcwd(), "static", "uploads")
 if not os.path.exists(UPLOAD_FOLDER):
-    os.makedirs(UPLOAD_FOLDER)  # 如果没有这个文件夹，系统会自动帮你建一个
+    os.makedirs(UPLOAD_FOLDER)
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
+
+
+class User(db.Model):
+    __tablename__ = "users"
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    username = db.Column(db.String(50), unique=True, nullable=False)
+    password = db.Column(db.String(255), nullable=False)
 
 
 class Cat(db.Model):
@@ -32,8 +39,6 @@ class Cat(db.Model):
     character_desc = db.Column(db.String(50))
     health_status = db.Column(db.String(50))
     audit_status = db.Column(db.String(20), default="pending")
-
-    # 核心修改：存认领人的 user_id。如果是空字符串 ''，说明没人认领
     morning_claimer = db.Column(db.String(100), default="")
     noon_claimer = db.Column(db.String(100), default="")
     evening_claimer = db.Column(db.String(100), default="")
@@ -59,9 +64,8 @@ class Cat(db.Model):
 
 @app.route("/api/init_db", methods=["GET"])
 def init_db():
-    db.drop_all()  # 删掉旧表重来
+    db.drop_all()
     db.create_all()
-    # 模拟数据里，大橘的早餐被 'user_001' 认领了
     cat1 = Cat(
         name="大橘",
         color="橘猫",
@@ -85,42 +89,63 @@ def init_db():
     )
     db.session.add_all([cat1, cat2])
     db.session.commit()
-    return jsonify(
-        {"status": "success", "message": "数据库重新初始化成功，字段已升级！"}
-    )
+    return jsonify({"status": "success"})
 
 
-# === 终极版：同时处理获取(GET)和带图片的新增(POST) ===
+@app.route("/api/register", methods=["POST"])
+def register():
+    data = request.json
+    username = data.get("username")
+    password = data.get("password")
+
+    if User.query.filter_by(username=username).first():
+        return jsonify({"status": "error", "message": "该账号已被注册"})
+
+    hashed_password = generate_password_hash(password)
+    new_user = User(username=username, password=hashed_password)
+
+    db.session.add(new_user)
+    db.session.commit()
+
+    return jsonify({"status": "success", "user_id": new_user.id})
+
+
+@app.route("/api/login", methods=["POST"])
+def login():
+    data = request.json
+    username = data.get("username")
+    password = data.get("password")
+
+    user = User.query.filter_by(username=username).first()
+
+    if user and check_password_hash(user.password, password):
+        return jsonify(
+            {"status": "success", "user_id": user.id, "username": user.username}
+        )
+
+    return jsonify({"status": "error", "message": "账号或密码错误"})
+
+
 @app.route("/api/cats", methods=["GET", "POST"])
 def handle_cats():
-    # 1. 首页获取猫咪列表 (GET) 保持不变
     if request.method == "GET":
         cats = Cat.query.filter_by(audit_status="published").all()
         return jsonify({"status": "success", "data": [c.to_dict() for c in cats]})
 
-    # 2. 接收包含图片的表单 (POST)
     if request.method == "POST":
-        # 因为带了文件，必须用 request.form 来接文字数据
         name = request.form.get("name")
         color = request.form.get("color")
         gender = request.form.get("gender")
         location = request.form.get("location")
         character_desc = request.form.get("character_desc")
         health_status = request.form.get("health_status")
-
-        # 默认占位图（万一没传图片兜底用）
         final_avatar_url = "https://images.unsplash.com/photo-1514888286974-6c03e2ca1dba?w=600&h=400&fit=crop"
 
-        # 核心：拆包拿图片文件
         image_file = request.files.get("image")
         if image_file and image_file.filename != "":
-            # 净化文件名（防止特殊字符黑客攻击）
             filename = secure_filename(image_file.filename)
-            # 拼出文件要存放在你电脑里的绝对路径
             save_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
-            # 物理保存到文件夹里！
             image_file.save(save_path)
-            # 生成可以通过浏览器访问的图片网址
             final_avatar_url = f"http://192.168.43.202:5000/static/uploads/{filename}"
 
         new_cat = Cat(
@@ -130,84 +155,62 @@ def handle_cats():
             location=location,
             character_desc=character_desc,
             health_status=health_status,
-            avatar_url=final_avatar_url,  # 存入真实的图片链接
+            avatar_url=final_avatar_url,
             audit_status="pending",
         )
         db.session.add(new_cat)
         db.session.commit()
-        return jsonify({"status": "success", "message": "档案及图片提报成功！"})
+        return jsonify({"status": "success"})
 
 
 @app.route("/api/cats/<int:cat_id>/feed", methods=["POST"])
 def feed_cat(cat_id):
     data = request.json
-    meal = data.get("meal")  # morning, noon, evening
-    action = data.get("action")  # claim (认领) 或 cancel (取消)
-    user_id = data.get("user_id")  # 谁在操作？
+    meal = data.get("meal")
+    action = data.get("action")
+    user_id = data.get("user_id")
 
     if not user_id:
-        return jsonify({"status": "error", "message": "未登录，缺少用户身份"}), 400
+        return jsonify({"status": "error"}), 400
 
     cat = Cat.query.get_or_404(cat_id)
-
-    # 动态获取当前这顿饭是谁认领的
     current_claimer = getattr(cat, f"{meal}_claimer")
 
     if action == "claim":
         if current_claimer:
-            return jsonify(
-                {"status": "error", "message": "手慢了，该时段已被他人认领"}
-            ), 400
+            return jsonify({"status": "error"}), 400
         setattr(cat, f"{meal}_claimer", user_id)
-        message = f"成功认领{cat.name}的餐段"
-
     elif action == "cancel":
         if current_claimer != user_id:
-            return jsonify(
-                {"status": "error", "message": "无权操作，只能取消自己的认领"}
-            ), 403
-        setattr(cat, f"{meal}_claimer", "")  # 清空认领人
-        message = "已取消认领，时段已重新释放"
+            return jsonify({"status": "error"}), 403
+        setattr(cat, f"{meal}_claimer", "")
 
     db.session.commit()
     return jsonify(
-        {
-            "status": "success",
-            "message": message,
-            "new_claimer": getattr(cat, f"{meal}_claimer"),
-        }
+        {"status": "success", "new_claimer": getattr(cat, f"{meal}_claimer")}
     )
 
 
-# ================= 管理员接口 =================
-
-
-# 1. 获取所有待审核的猫咪列表
 @app.route("/api/admin/pending_cats", methods=["GET"])
 def get_pending_cats():
-    # 去数据库里捞出所有状态为 'pending' 的猫咪
     cats = Cat.query.filter_by(audit_status="pending").all()
     return jsonify({"status": "success", "data": [c.to_dict() for c in cats]})
 
 
-# 2. 处理审核通过(pass)或打回(reject)
 @app.route("/api/admin/review_cat", methods=["POST"])
 def review_cat():
     data = request.json
     cat_id = data.get("cat_id")
     action = data.get("action")
-
     cat = Cat.query.get_or_404(cat_id)
 
     if action == "pass":
-        cat.audit_status = "published"  # 改为已发布状态，首页就能看到了！
-        message = "已通过审核"
+        cat.audit_status = "published"
     elif action == "reject":
-        db.session.delete(cat)  # 垃圾数据直接从数据库删除
-        message = "已打回并删除"
+        db.session.delete(cat)
 
     db.session.commit()
-    return jsonify({"status": "success", "message": message})
+    return jsonify({"status": "success"})
 
 
 @app.route("/api/admin/delete_cat", methods=["POST"])
@@ -219,25 +222,20 @@ def delete_cat():
     if cat.avatar_url:
         file_name = cat.avatar_url.split("/")[-1]
         file_path = os.path.join(app.root_path, "static", "uploads", file_name)
-
         if os.path.exists(file_path):
             os.remove(file_path)
 
-    # 再删数据库记录
     db.session.delete(cat)
     db.session.commit()
+    return jsonify({"status": "success"})
 
-    return jsonify({"status": "success", "message": "该记录已彻底删除，本地图片已清理"})
 
-
-# 4. 修改猫咪基本信息
 @app.route("/api/admin/update_cat", methods=["POST"])
 def update_cat():
     data = request.json
     cat_id = data.get("cat_id")
     cat = Cat.query.get_or_404(cat_id)
 
-    # 老师可以修改名字、地点和性格
     if "name" in data:
         cat.name = data["name"]
     if "location" in data:
@@ -246,7 +244,7 @@ def update_cat():
         cat.character_desc = data["character_desc"]
 
     db.session.commit()
-    return jsonify({"status": "success", "message": "信息修改成功！"})
+    return jsonify({"status": "success"})
 
 
 if __name__ == "__main__":

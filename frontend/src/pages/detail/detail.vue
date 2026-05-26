@@ -50,6 +50,7 @@
 <script setup>
 import { ref } from 'vue';
 import { onLoad, onShow } from '@dcloudio/uni-app';
+import { config } from '@/config.js';
 
 const catId = ref(null);
 const catInfo = ref({});
@@ -76,7 +77,7 @@ onShow(() => {
 
 const fetchCatDetail = () => {
   uni.request({
-    url: 'http://192.168.43.202:5000/api/cats', 
+    url: `${config.baseUrl}/api/cats`, 
     method: 'GET',
     success: (res) => {
       if(res.data.status === 'success') {
@@ -84,7 +85,7 @@ const fetchCatDetail = () => {
         const targetCat = allCats.find(c => c.id == catId.value);
         if (targetCat) {
           if (targetCat.avatar_url && !targetCat.avatar_url.startsWith('http')) {
-            targetCat.avatar_url = 'http://192.168.43.202:5000' + targetCat.avatar_url;
+            targetCat.avatar_url = config.baseUrl + targetCat.avatar_url;
           }
           catInfo.value = targetCat;
         }
@@ -108,7 +109,7 @@ const handleFeedAction = (meal, action) => {
     success: (res) => {
       if (res.confirm) {
         uni.request({
-          url: `http://192.168.43.202:5000/api/cats/${catId.value}/feed`,
+          url: `${config.baseUrl}/api/cats/${catId.value}/feed`,
           method: 'POST',
           data: { 
             meal: meal, 

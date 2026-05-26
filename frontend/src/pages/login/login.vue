@@ -22,6 +22,7 @@
 
 <script setup>
 import { ref } from 'vue';
+import { config } from '@/config.js';
 
 const isLogin = ref(true);
 const form = ref({ username: '', password: '' });
@@ -43,7 +44,7 @@ const handleSubmit = () => {
   const endpoint = isLogin.value ? '/api/login' : '/api/register';
   
   uni.request({
-    url: `http://192.168.43.202:5000${endpoint}`,
+    url: `${config.baseUrl}${endpoint}`,
     method: 'POST',
     data: form.value,
     success: (res) => {

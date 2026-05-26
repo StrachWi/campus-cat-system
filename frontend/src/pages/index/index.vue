@@ -53,6 +53,7 @@
 <script setup>
 import { ref, computed } from 'vue';
 import { onShow } from '@dcloudio/uni-app';
+import { config } from '@/config.js';
 
 const catList = ref([]);
 const showFilter = ref(false);
@@ -62,15 +63,16 @@ const goToDiscover = () => { uni.navigateTo({ url: '/pages/discover/discover' })
 
 const fetchCats = () => {
   uni.request({
-    url: 'http://192.168.43.202:5000/api/cats', 
+    url: `${config.baseUrl}/api/cats`,
     method: 'GET',
     success: (res) => {
       if (res.data?.status === 'success') {
         let data = res.data.data;
         data.forEach((cat) => {
-          // ✅ 核心修复：加了 if 判断！只有当没有真实图片时，才使用默认图片兜底
           if (!cat.avatar_url) {
             cat.avatar_url = 'https://images.unsplash.com/photo-1514888286974-6c03e2ca1dba?w=200&h=200&fit=crop';
+          } else if (!cat.avatar_url.startsWith('http')) {
+            cat.avatar_url = config.baseUrl + cat.avatar_url;
           }
         });
         catList.value = data;

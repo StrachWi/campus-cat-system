@@ -60,6 +60,7 @@
 
 <script setup>
 import { ref } from 'vue';
+import { config } from '@/config.js';
 
 const genderOptions = ['未知', '公', '母'];
 const genderIndex = ref(0);
@@ -108,7 +109,7 @@ const submitForm = () => {
 
   // 2. 真实发送包含【图片文件】和【文字】的请求
   uni.uploadFile({
-    url: 'http://192.168.43.202:5000/api/cats', // 你的后端地址
+    url: `${config.baseUrl}/api/cats`, // 你的后端地址
     filePath: formData.value.tempImagePath,     // 手机相册里选中的照片路径
     name: 'image',                              // 名字必须叫 'image'，和后端代码对应
     formData: {

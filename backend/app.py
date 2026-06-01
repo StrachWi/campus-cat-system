@@ -146,7 +146,7 @@ def handle_cats():
             filename = secure_filename(image_file.filename)
             save_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
             image_file.save(save_path)
-            final_avatar_url = f"http://192.168.43.202:5000/static/uploads/{filename}"
+            final_avatar_url = f"/api/uploads/{filename}"
 
         new_cat = Cat(
             name=name,

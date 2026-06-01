@@ -85,7 +85,7 @@ const editForm = ref({ id: '', name: '', location: '', character_desc: '' });
 // 1. 获取待审核数据
 const fetchPendingCats = () => {
   uni.request({
-    url: '${config.baseUrl}/api/admin/pending_cats',
+    url: `${config.baseUrl}/api/admin/pending_cats`,
     success: (res) => { if (res.data?.status === 'success') pendingCats.value = res.data.data; }
   });
 };
@@ -93,7 +93,7 @@ const fetchPendingCats = () => {
 // 2. 获取已发布数据 (借用首页的接口)
 const fetchPublishedCats = () => {
   uni.request({
-    url: '${config.baseUrl}/api/cats',
+    url: `${config.baseUrl}/api/cats`,
     success: (res) => { if (res.data?.status === 'success') publishedCats.value = res.data.data; }
   });
 };
@@ -101,7 +101,7 @@ const fetchPublishedCats = () => {
 // 3. 处理审核 (旧功能)
 const handleReview = (id, action) => {
   uni.request({
-    url: '${config.baseUrl}/api/admin/review_cat', method: 'POST', data: { cat_id: id, action: action },
+    url: `${config.baseUrl}/api/admin/review_cat`, method: 'POST', data: { cat_id: id, action: action },
     success: () => {
       uni.showToast({ title: '操作成功' });
       fetchPendingCats(); // 刷新待审核列表
@@ -117,7 +117,7 @@ const handleDelete = (id) => {
     success: (res) => {
       if (res.confirm) {
         uni.request({
-          url: '${config.baseUrl}/api/admin/delete_cat', method: 'POST', data: { cat_id: id },
+          url: `${config.baseUrl}/api/admin/delete_cat`, method: 'POST', data: { cat_id: id },
           success: () => { uni.showToast({ title: '已彻底删除' }); fetchPublishedCats(); }
         });
       }
@@ -134,7 +134,7 @@ const openEditModal = (cat) => {
 // 6. 提交修改并保存到数据库 (新功能)
 const submitEdit = () => {
   uni.request({
-    url: '${config.baseUrl}/api/admin/update_cat', method: 'POST',
+    url: `${config.baseUrl}/api/admin/update_cat`, method: 'POST',
     data: { cat_id: editForm.value.id, name: editForm.value.name, location: editForm.value.location, character_desc: editForm.value.character_desc },
     success: () => {
       uni.showToast({ title: '信息已更新' });

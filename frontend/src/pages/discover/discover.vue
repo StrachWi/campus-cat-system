@@ -66,7 +66,7 @@ const genderOptions = ['未知', '公', '母'];
 const genderIndex = ref(0);
 
 const formData = ref({
-  tempImagePath: '', // 存放选中的本地图片路径
+  tempImagePath: '',
   name: '',
   color: '',
   gender: '未知',
@@ -75,16 +75,14 @@ const formData = ref({
   health_status: ''
 });
 
-// 选择性别
 const bindGenderChange = (e) => {
   genderIndex.value = e.detail.value;
   formData.value.gender = genderOptions[genderIndex.value];
 };
 
-// 调起手机相册选图
 const chooseImage = () => {
   uni.chooseImage({
-    count: 1, // 只能选一张
+    count: 1,
     sizeType: ['compressed'],
     sourceType: ['album', 'camera'],
     success: (res) => {
@@ -93,9 +91,7 @@ const chooseImage = () => {
   });
 };
 
-// 提交表单逻辑 (带真实图片上传)
 const submitForm = () => {
-  // 1. 基础校验
   if (!formData.value.name || !formData.value.location || !formData.value.character_desc) {
     uni.showToast({ title: '带 * 号的为必填项哦', icon: 'none' });
     return;
@@ -105,13 +101,15 @@ const submitForm = () => {
     return;
   }
 
+  console.log('读取到的config对象:', config);
+  console.log('准备发送的最终URL:', `${config.baseUrl}/api/cats`);
+
   uni.showLoading({ title: '提交中...' });
 
-  // 2. 真实发送包含【图片文件】和【文字】的请求
   uni.uploadFile({
-    url: `${config.baseUrl}/api/cats`, // 你的后端地址
-    filePath: formData.value.tempImagePath,     // 手机相册里选中的照片路径
-    name: 'image',                              // 名字必须叫 'image'，和后端代码对应
+    url: `${config.baseUrl}/api/cats`,
+    filePath: formData.value.tempImagePath,
+    name: 'image',
     formData: {
       name: formData.value.name,
       color: formData.value.color,
@@ -122,12 +120,10 @@ const submitForm = () => {
     },
     success: (res) => {
       uni.hideLoading();
-      // 注意：uploadFile 返回的 res.data 默认是字符串，必须转成 JSON 才能用
       let data = JSON.parse(res.data);
       
       if (data.status === 'success') {
         uni.showToast({ title: '带图提报成功！', icon: 'success' });
-        // 延迟 1.5 秒后自动退回首页
         setTimeout(() => { uni.navigateBack(); }, 1500);
       } else {
         uni.showToast({ title: '提交失败，请重试', icon: 'none' });

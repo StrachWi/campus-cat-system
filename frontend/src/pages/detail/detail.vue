@@ -1,6 +1,6 @@
 <template>
   <view class="detail-container">
-    <image class="cat-avatar" :src="formatImageUrl(cat.avatar_url)" mode="aspectFill"></image>
+    <image class="cat-avatar" :src="formatImageUrl(catInfo?.avatar_url)" mode="aspectFill"></image>
 
     <view class="info-section" v-if="catInfo.name">
       <view class="header-row">

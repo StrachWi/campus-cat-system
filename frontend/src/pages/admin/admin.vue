@@ -19,7 +19,7 @@
         </view>
         <view class="review-card" v-for="cat in pendingCats" :key="cat.id">
           <view class="cat-info-row">
-            <image class="cat-avatar" :src="cat.avatar_url" mode="aspectFill"></image>
+            <image class="cat-avatar" :src="formatImageUrl(cat.avatar_url)" mode="aspectFill"></image>
             <view class="cat-details">
               <text class="cat-name">{{ cat.name }}</text>
               <text class="cat-desc">📍 {{ cat.location }}</text>
@@ -37,7 +37,7 @@
       <view v-show="currentTab === 'published'">
         <view class="review-card" v-for="cat in publishedCats" :key="cat.id">
           <view class="cat-info-row">
-            <image class="cat-avatar" :src="cat.avatar_url" mode="aspectFill"></image>
+            <image class="cat-avatar" :src="formatImageUrl(cat.avatar_url)" mode="aspectFill"></image>
             <view class="cat-details">
               <text class="cat-name">{{ cat.name }} (已发布)</text>
               <text class="cat-desc">📍 {{ cat.location }}</text>
@@ -81,6 +81,29 @@ const publishedCats = ref([]);
 // 弹窗相关变量
 const showEditModal = ref(false);
 const editForm = ref({ id: '', name: '', location: '', character_desc: '' });
+
+const formatImageUrl = (url) => {
+  if (!url) {
+    return 'https://images.unsplash.com/photo-1514888286974-6c03e2ca1dba?w=200&h=200&fit=crop';
+  }
+  
+  let newUrl = url;
+  
+  if (newUrl.includes('192.168.43.202')) {
+    newUrl = newUrl.replace(/http:\/\/192\.168\.43\.202:\d+/g, config.baseUrl);
+  }
+  
+  if (newUrl.includes('/api/uploads/')) {
+    newUrl = newUrl.replace('/api/uploads/', '/static/uploads/');
+  }
+  
+  if (!newUrl.startsWith('http')) {
+    const prefix = newUrl.startsWith('/') ? '' : '/';
+    newUrl = config.baseUrl + prefix + newUrl;
+  }
+  
+  return newUrl;
+};
 
 // 1. 获取待审核数据
 const fetchPendingCats = () => {

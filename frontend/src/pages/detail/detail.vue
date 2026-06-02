@@ -1,6 +1,6 @@
 <template>
   <view class="detail-container">
-    <image :src="catInfo.avatar_url" mode="aspectFill"></image>
+    <image class="cat-avatar" :src="formatImageUrl(cat.avatar_url)" mode="aspectFill"></image>
 
     <view class="info-section" v-if="catInfo.name">
       <view class="header-row">
@@ -74,6 +74,29 @@ onShow(() => {
   initUserId();
   if (catId.value) fetchCatDetail();
 });
+
+const formatImageUrl = (url) => {
+  if (!url) {
+    return 'https://images.unsplash.com/photo-1514888286974-6c03e2ca1dba?w=200&h=200&fit=crop';
+  }
+  
+  let newUrl = url;
+  
+  if (newUrl.includes('192.168.43.202')) {
+    newUrl = newUrl.replace(/http:\/\/192\.168\.43\.202:\d+/g, config.baseUrl);
+  }
+  
+  if (newUrl.includes('/api/uploads/')) {
+    newUrl = newUrl.replace('/api/uploads/', '/static/uploads/');
+  }
+  
+  if (!newUrl.startsWith('http')) {
+    const prefix = newUrl.startsWith('/') ? '' : '/';
+    newUrl = config.baseUrl + prefix + newUrl;
+  }
+  
+  return newUrl;
+};
 
 const fetchCatDetail = () => {
   uni.request({

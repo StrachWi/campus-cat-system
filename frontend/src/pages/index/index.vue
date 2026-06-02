@@ -10,7 +10,7 @@
     <view class="cat-list">
       <view class="cat-card" v-for="cat in displayCatList" :key="cat.id">
         <view class="card-header" @click="goToDetail(cat.id)">
-          <image class="cat-avatar" :src="cat.avatar_url" mode="aspectFill"></image>
+          <image class="cat-avatar" :src="formatImageUrl(cat.avatar_url)" mode="aspectFill"></image>
           <view class="cat-info">
             <view class="name-row">
               <text class="name">{{ cat.name }}</text>
@@ -60,6 +60,29 @@ const showFilter = ref(false);
 const selectedMeals = ref([]);
 
 const goToDiscover = () => { uni.navigateTo({ url: '/pages/discover/discover' }); };
+
+const formatImageUrl = (url) => {
+  if (!url) {
+    return 'https://images.unsplash.com/photo-1514888286974-6c03e2ca1dba?w=200&h=200&fit=crop';
+  }
+  
+  let newUrl = url;
+  
+  if (newUrl.includes('192.168.43.202')) {
+    newUrl = newUrl.replace(/http:\/\/192\.168\.43\.202:\d+/g, config.baseUrl);
+  }
+  
+  if (newUrl.includes('/api/uploads/')) {
+    newUrl = newUrl.replace('/api/uploads/', '/static/uploads/');
+  }
+  
+  if (!newUrl.startsWith('http')) {
+    const prefix = newUrl.startsWith('/') ? '' : '/';
+    newUrl = config.baseUrl + prefix + newUrl;
+  }
+  
+  return newUrl;
+};
 
 const fetchCats = () => {
   uni.request({

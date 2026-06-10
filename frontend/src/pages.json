@@ -28,6 +28,12 @@
 			}
 		},
 		{
+    		"path": "pages/ledger/ledger",
+      		"style": {
+        	"navigationBarTitleText": "阳光账本"
+      		}
+    	},
+		{
 			"path": "pages/my/my",
 			"style": {
 				"navigationBarTitleText": "我的"
@@ -58,6 +64,10 @@
 				"pagePath": "pages/index/index",
 				"text": "喵圈"
 			},
+			{
+          		"pagePath": "pages/ledger/ledger",
+          		"text": "阳光账本"
+        	},
 			{
 				"pagePath": "pages/my/my",
 				"text": "我的"

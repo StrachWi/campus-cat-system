@@ -162,3 +162,6 @@ unpackage/
 *.njsproj
 *.sln
 *.sw?
+
+*.db
+**/test_p0_apis.*

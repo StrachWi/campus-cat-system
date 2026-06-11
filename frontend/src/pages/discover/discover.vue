@@ -111,6 +111,7 @@ const submitForm = () => {
     filePath: formData.value.tempImagePath,
     name: 'image',
     formData: {
+      user_id: uni.getStorageSync('real_user_id') || '',
       name: formData.value.name,
       color: formData.value.color,
       gender: formData.value.gender,

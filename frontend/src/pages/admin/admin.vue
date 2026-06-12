@@ -97,7 +97,7 @@
 						<text class="nape">{{goods.op===0 ? '存' : '取'}}{{goods.temp}}个{{goods.item}}</text><br>
 					</view>
 				</view>
-				<button >确认</button>
+				<button @click="handleGoods">确认</button>
 			</view>
 		</view>
 		
@@ -109,7 +109,7 @@
 	</view>
 	<!-- 账目管理界面-->
 	<view v-show="currentTab ==='bank' ">
-		<view class="center" @click="Banksta=0">
+		<view class="center">
 			<view>
 				<!-- 总金额-->
 				<text class="head2">当前金额</text>
@@ -133,11 +133,12 @@
 				    <text>上传支票</text>
 				  </view>
 				</view>
-				<button @click="Banksta=0" class="but3">{{Banksta===1? '存':'取'}}</button>
+				<button @click="handleBank" class="but3">{{Banksta===1? '存':'取'}}</button>
+				<button @click="Banksta=0">取消</button>
 			</view>
 			<view  @click.stop v-if="Banksta===0">
-				<button @click="Banksta=1"> 存</button>
-				<button @click="Banksta=2">取</button>
+				<button @click="Banksta=1" class="but4"> 存</button>
+				<button @click="Banksta=2" class="but4">取</button>
 				<!--选择按钮-->
 			</view>
 		</view>
@@ -166,6 +167,7 @@ import { onShow } from '@dcloudio/uni-app';
 import { config } from '@/config.js';
 
 const currentTab = ref('pending'); // 当前激活的Tab，默认待审核
+const user_id = ref('');
 const pendingCats = ref([]);
 const publishedCats = ref([]);
 const goodsList = ref([{item:'猫粮',num:3,temp:0,op:0 ,remark:''}]);
@@ -178,7 +180,7 @@ const editForm = ref({ id: '', name: '', location: '', character_desc: '' });
 const tempImagePath = ref('');
 const billnum=ref(0);
 const billmark=ref('');
-const Banksta = ref(2);
+const Banksta = ref(0);
 const showGoodsform = ref(false);
 const handBlur = (goods) =>{
 	if (typeof goods.temp !== 'number' || isNaN(goods.temp) || goods.temp < 0) {
@@ -219,6 +221,68 @@ const formatImageUrl = (url) => {
   }
   
   return newUrl;
+};
+
+
+const handleGoods = () =>{
+	const templist = goodsList.value.filter(ch =>{
+		return ch.temp != 0;
+	});
+	for (const goods in goodsList){
+		uni.request({
+			url: `${config.baseUrl}/api/admin/goods`,method:'POST',data:{user_id: user_id , operate:goods.op+1 , num:goods.temp , item: goods.item , remark: goods.remark}
+		});
+	};
+};
+
+const handleBank = ()=>{
+	if(billnum.value===0){
+		uni.showToast({ title: '没有做出改动', icon: 'none' });
+		return;
+	}
+	
+	if (!tempImagePath.value) {
+	  uni.showToast({ title: '请至少上传一张照片', icon: 'none' });
+	  return;
+	}
+	
+	uni.uploadFile({
+	  url: `${config.baseUrl}/api/admin/bank`,
+	  method: 'POST',
+	  filePath: tempImagePath.value,
+	  name: 'image',
+	  formData: {
+	    user_id:user_id,
+		num: billnum,
+		type: Banksta,
+		remark: billmark
+	  },
+	  success: (res) => {
+	    uni.hideLoading();
+	    let data = JSON.parse(res.data);
+	    
+	    if (data.status === 'success') {
+	      uni.showToast({ title: '带图提报成功！', icon: 'success' });
+	    } else {
+	      uni.showToast({ title: '提交失败，请重试', icon: 'none' });
+	    }
+	  },
+	  fail: (err) => {
+	    uni.hideLoading();
+	    console.error(err);
+	    uni.showToast({ title: '上传失败，请检查网络', icon: 'none' });
+	  }
+	});
+	Banksta = 0;
+};
+
+
+const fetchGoodslist = ()=>{
+	const temp =ref([]);
+	uni.request({
+	  url: `${config.baseUrl}/api/admin/pending_cats`, //暂定
+	  success: (res) => { if (res.data?.status === 'success') temp.value = res.data.data; }
+	});
 };
 
 // 1. 获取待审核数据
@@ -284,7 +348,7 @@ const submitEdit = () => {
 };
 
 // 每次进入页面时，把两边的数据都拉取一次
-onShow(() => { fetchPendingCats(); fetchPublishedCats(); });
+onShow(() => { user_id.value = uni.getStorageSync('mock_user_id'); fetchPendingCats(); fetchPublishedCats(); });
 </script>
 
 <style scoped>
@@ -330,7 +394,8 @@ onShow(() => { fetchPendingCats(); fetchPublishedCats(); });
 .inum{color: #aa0000; margin: 10px;}
 .but1{width: 7%;font-size: 10px;margin: 5px; background-color: #f56c6c; display: flex;justify-content: center;}
 .but2{width: 5%;margin: 2px; padding: 0px; display: flex;justify-content: center;background-color: #ffaa00;}
-.but3{width: 50%; padding: 0px; display: flex;justify-content: center;background-color: #ffaa00;}
+.but3{width: 50%; padding: 0px; display: flex;justify-content: center;background-color: #ffaa00; margin-bottom: 4px;}
+.but4{background-color: #4facfe;}
 .input1{background-color: #d3d3d3;width: 15%;border-style: inset;}
 .input2{background-color: #d3d3d3;width: 60%;border-style: inset;margin: 10px;}
 .changehead{display: flex; align-items: center;}
@@ -341,7 +406,7 @@ onShow(() => { fetchPendingCats(); fetchPublishedCats(); });
 .nape{padding: 2px;margin: 4px;}
 .region{background-color: #d3d3d3;padding: 3px;}
 .head2{margin: 2px;color: #005500;}
-.center{ justify-content: center;align-items: center;}
+.center{justify-content: space-evenly;   align-items: center;}
 .bill{background-color: #aaaaff; border-radius: 10px; padding: 5px;}
 .plus-icon { font-size: 32px; color: #ccc; margin-bottom: 4px; }
 .preview-img { width: 120px; height: 120px; border-radius: 12px; }

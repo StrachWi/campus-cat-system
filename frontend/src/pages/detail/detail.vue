@@ -45,11 +45,12 @@
       </view>
     </view>
 	
-	<view>
+	<view class="meal-plan">
 		<view class="meal-item" v-for="feed in feedlist" :key = "feed">
-			<text>{{feed.user}}在{{feed.time}}投喂了{{feed.type}}</text>
+			<text>{{feed.user}}在{{mealNameMap[trans(feed.time)]}}投喂了{{feed.type}}</text>
 		</view>
 	</view>
+	
 	<footer class="float-bottom-btn">
 		<view class="myinfo">
 		  <text v-if="!catInfo.feed_status[nowmeal]" class="meal-name1">还未有人来喂养</text>
@@ -91,7 +92,6 @@ const catId = ref(null);
 const catInfo = ref({});
 const myUserId = ref(null);
 const mealNameMap = { morning: '早餐', noon: '午餐', evening: '晚餐' };
-const feedlist = ref([]);
 const nowmeal = ref('morning')
 
 const checkbut = ref(false);
@@ -100,6 +100,7 @@ const food = ref('');
 const water = ref('');
 const foodtype = ref(0);
 const foodlist = ref([ '猫粮', '猫条', '零食']);
+const feedlist = ref([{user:'lihua',time:3,type:'猫条'}]);
 
 const checkwater = ()=>{
 	checkbut = !checkbut;
@@ -113,13 +114,26 @@ const closeDialog = () => {
   food.value = '';
   water.value = '';
 };
+
+const trans = (meal) =>{
+	if(meal.value === 1) return 'morning';
+	else if(meal.value === 2) return 'noon';
+	else return 'evening';
+};
+
+const trans2 = (ti) =>{
+	if(ti.value ==='morning') return 1;
+	else if(ti.value === 'noon') return 2;
+	else return 3;
+};
+
 const handleSubmit = () => {
 	uni.showModal({
 		title:'上传猫咪喂养信息' , content:'确定要上传喂养记录吗？',
 		success:(res)=>{
 			if(res.confirm)
 			  uni.request({
-			  	url:`${config.baseUrl}/api/cats/feeding` , method:'POST',data:{user_id:myUserId , cat_id:catId, time:nowmeal , food:food.value ,water:water.value},
+			  	url:`${config.baseUrl}/api/cats/feeding` , method:'POST',data:{user_id:myUserId , cat_id:catId, time:trans2(nowmeal) , food:food.value ,water:water.value},
 				success: () => {
 					uni.showToast({
 						title:'formData'

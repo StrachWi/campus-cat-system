@@ -44,11 +44,46 @@
         </view>
       </view>
     </view>
+	
+	<view>
+		<view class="meal-item" v-for="feed in feedlist" :key = "feed">
+			<text>{{feed.user}}在{{feed.time}}投喂了{{feed.type}}</text>
+		</view>
+	</view>
+	<footer class="float-bottom-btn">
+		<view class="myinfo">
+		  <text v-if="!catInfo.feed_status[nowmeal]" class="meal-name1">还未有人来喂养</text>
+		  <text v-else-if="catInfo.feed_status[nowmeal] === myUserId" class="meal-name1">我已经认领的</text>
+		  <text v-else class="meal-name1">已有人要来喂养</text>
+		</view>
+		<button v-if="!catInfo.feed_status[nowmeal]" class="action-btn claim-btn" @click="handleFeedAction(nowmeal,'claim')">认领后可喂养</button>
+		<button v-else-if="catInfo.feed_status[nowmeal] === myUserId" class="action-btn cancel-btn" @click="toggleDialog()">去喂养</button>
+		<button v-else class="action-btn disabled-btn" disabled>暂时不能喂养</button>
+	</footer>
   </view>
+  
+	<div v-if="isDialogVisible" class="dialog-wrapper">
+      <div class="dialog">
+        <h3>喂养提报</h3>
+        <form @submit.prevent="handleSubmit()">
+          <label>食物:</label>
+		  <picker :value="foodtype" :range="foodlist" @change="onfoodch">
+			  <view class="picktype"> {{ foodlist[foodtype] }} </view>
+		  </picker>
+		  <label>是否喂水:
+		  <button type="button" :class=" ['check', checkbut ? 'ch-yes' : 'ch-no'] " @click="checkbut=!checkbut">是</button></label>
+          <div class="actions">
+            <button type="submit" @click="handleSubmit()">提交</button>
+            <button type="button" @click="closeDialog()">取消</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  
 </template>
 
 <script setup>
-import { ref } from 'vue';
+import { ref ,reactive, computed} from 'vue';
 import { onLoad, onShow } from '@dcloudio/uni-app';
 import { config } from '@/config.js';
 
@@ -56,6 +91,58 @@ const catId = ref(null);
 const catInfo = ref({});
 const myUserId = ref(null);
 const mealNameMap = { morning: '早餐', noon: '午餐', evening: '晚餐' };
+const feedlist = ref([]);
+const nowmeal = ref('morning')
+
+const checkbut = ref(false);
+const isDialogVisible = ref(false);
+const food = ref('');
+const water = ref('');
+const foodtype = ref(0);
+const foodlist = ref([ '猫粮', '猫条', '零食']);
+
+const checkwater = ()=>{
+	checkbut = !checkbut;
+	if(checkbut) water.value='是';
+	else water.value='否';
+};
+const toggleDialog = () => { isDialogVisible.value = true; };
+const closeDialog = () => {
+  isDialogVisible.value = false;
+  // 重置表单数据
+  food.value = '';
+  water.value = '';
+};
+const handleSubmit = () => {
+	uni.showModal({
+		title:'上传猫咪喂养信息' , content:'确定要上传喂养记录吗？',
+		success:(res)=>{
+			if(res.confirm)
+			  uni.request({
+			  	url:`${config.baseUrl}/api/cats/feeding` , method:'POST',data:{user_id:myUserId , cat_id:catId, time:nowmeal , food:food.value ,water:water.value},
+				success: () => {
+					uni.showToast({
+						title:'formData'
+					})
+				}
+			  });
+		 }
+	});
+	fetchrecord();
+  closeDialog();
+};
+
+
+const fed = computed(()=>{
+	const temp = feedlist.value.filter(rec =>{
+		return nowmeal.value===rec.time.value;
+	});
+});
+
+const onfoodch =(e) =>{
+	foodtype.value = e.detail.value;
+	food.value = foodlist[foodtype.value];
+};
 
 const initUserId = () => {
   let uid = uni.getStorageSync('real_user_id');
@@ -115,6 +202,18 @@ const fetchCatDetail = () => {
       }
     }
   });
+};
+
+const fetchrecord=() =>{
+	uni.request({
+		url: `${config.baseUrl}/api/cats/feeding`,
+		methon: 'GET',
+		success:(res) =>{
+			if(res.data.status == 'success') {
+				feedlist.value = res.data.data;
+			}
+		}
+	});
 };
 
 const handleFeedAction = (meal, action) => {
@@ -180,15 +279,31 @@ const handleFeedAction = (meal, action) => {
 
 .meal-plan { display: flex; flex-direction: column; gap: 15px; }
 .meal-item { display: flex; justify-content: space-between; align-items: center; background-color: #fcfcfc; padding: 12px; border-radius: 12px; border: 1px solid #f5f5f5; }
-.meal-name { font-size: 15px; font-weight: bold; display: block; margin-bottom: 4px; }
+.meal-name { font-size: 15px; font-weight: bold; display: block; margin: 4px; }
+.meal-name1 { font-size: 22px;margin: 5px; }
 .meal-status { font-size: 12px; }
 
 .status-pending { color: #909399; }
 .status-mine { color: #67c23a; font-weight: bold;}
 .status-others { color: #999; }
 
-.action-btn { margin: 0; font-size: 13px; border-radius: 20px; padding: 0 20px; height: 32px; line-height: 32px;}
+.action-btn { margin: 2px; font-size: 13px; border-radius: 20px; padding: 0 20px; height: 32px; line-height: 32px;}
 .claim-btn { background-color: #ff8c00; color: #fff; }
 .cancel-btn { background-color: #fff; color: #ff8c00; border: 1px solid #ff8c00; }
 .disabled-btn { background-color: #f5f5f5; color: #ccc; }
+.float-bottom-btn {position:fixed; width: 100% ;display: flex; justify-content: space-around;bottom: 0px; z-index: 99;background-color: #aaffff;padding: 2 2px;  }
+
+
+.picktype{background-color: #aaffff; padding: 0 12px; border-radius: 8px; font-size: 14px; color: #333; width: 25%;margin: 5px;}
+.input-box { background-color: #aaffff; font-size: 14px; color: #00ff00; padding: 8 8 px; border-style:inset; border-width:2px;}
+.check {font-size: 12px; color: #000000; width: 20%;}
+.ch-yes{ background-color: #ff5500;}
+.ch-no{background-color: #eee;}
+.dialog-wrapper {
+  position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex; justify-content: center; align-items: center;
+}
+.dialog { background: #fff; padding: 20px; border-radius: 8px; min-width: 300px; }
+.actions button { margin-right: 10px; margin-top: 10px; }
 </style>

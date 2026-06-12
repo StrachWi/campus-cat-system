@@ -4,11 +4,22 @@
       <view class="discover-btn" @click="goToDiscover"><text>📷 发现新猫咪</text></view>
       <view class="filter-area" @click="showFilter = true">
         <text class="filter-text">筛选待喂养 ▾</text>
-      </view>
+	  </view>
+	  <view class="filter-area" @click="showPicker = true">
+	    <text class="filter-text">筛选毛色或性别 ▾</text>
+	  </view>
     </view>
+	
+	<view class="top-action-bar2">
+	  <view class="search-area">
+		  <button class="search-box" @click="clean">重置选项</button>
+		  <input type="search" class="input-box" v-model="key" placeholder="输入名字或地点"/>
+		  <button class="search-box" v-if= "key" @click="key = ''">清空</button>
+	  </view>
+	</view>
     
     <view class="cat-list">
-      <view class="cat-card" v-for="cat in displayCatList" :key="cat.id">
+      <view class="cat-card" v-for="cat in displaylist" :key="cat.id">
         <view class="card-header" @click="goToDetail(cat.id)">
           <image class="cat-avatar" :src="formatImageUrl(cat.avatar_url)" mode="aspectFill"></image>
           <view class="cat-info">
@@ -47,6 +58,28 @@
         </view>
       </view>
     </view>
+	
+	<view class="modal-mask" v-if="showPicker" @click="showPicker=false">
+		<view class="modal-content" @click.stop>
+		  <view class="modal-header">
+		    <text class="modal-title">选择毛色或性别</text>
+			<text class="close-btn" @click="showPicker = false">✕</text>
+		  </view>
+				<text>选择毛色</text>
+				<view class="meal-options">
+				  <view v-for="rgb in colorlist" :key="rgb" :class="['meal-btn', colors.includes(rgb) ? 'meal-active' : '']" @click="toggleColor(rgb)">{{ rgb }}色</view>
+				</view>
+				<text>选择性别</text>
+				<view class="meal-options">
+				  <view v-for="g in genderlist" :key="g" :class="['meal-btn', genders.includes(g) ? 'meal-active' : '']" @click="toggleGender(g)">{{ g }}</view>
+				</view>
+		  <view class="modal-footer">
+		    <button class="reset-btn" @click="colors=[]">重置全部</button>
+		    <button class="confirm-btn" @click="showFilter = false">确认</button>
+		  </view>
+		</view>
+	</view>
+	
   </view>
 </template>
 
@@ -57,7 +90,18 @@ import { config } from '@/config.js';
 
 const catList = ref([]);
 const showFilter = ref(false);
+const showPicker = ref(false);
 const selectedMeals = ref([]);
+const colors = ref([]);
+const key = ref("");
+const genders = ref([]);
+
+const clean = ()=>{
+	colors.value = [];
+	selectedMeals.value = [];
+	genders.value = [];
+	key.value = "";
+};
 
 const goToDiscover = () => { uni.navigateTo({ url: '/pages/discover/discover' }); };
 
@@ -110,6 +154,18 @@ const toggleMeal = (meal) => {
   else selectedMeals.value.push(meal);
 };
 
+const toggleColor = (color) => {
+  const index = colors.value.indexOf(color);
+  if (index > -1) colors.value.splice(index, 1);
+  else colors.value.push(color);
+};
+
+const toggleGender =(gender) =>{
+	const index = genders.value.indexOf(gender);
+	if (index > -1) genders.value.splice(index, 1);
+	else genders.value.push(gender);
+};
+
 const displayCatList = computed(() => {
   if (selectedMeals.value.length === 0) return catList.value;
   return catList.value.filter(cat => {
@@ -121,6 +177,30 @@ const displayCatList = computed(() => {
   });
 });
 
+const finalList = computed(() =>{
+	return displayCatList.value.filter(cat =>{
+		return (genders.value.includes(cat.gender)||genders.value.length === 0 )&&(colors.value.includes(cat.color)||colors.value.length === 0);
+	});
+});
+
+const displaylist = computed(() =>{
+	if(!key.value) return finalList.value;
+	return finalList.value.filter(cat => {
+		return cat.name.includes(key.value)||cat.location.includes(key.value);
+	});
+});
+
+const colorlist = computed(()=>{
+	if(!Array.isArray(catList.value)) return [];
+	const temp = catList.value.map(item => item.color);
+	return [... new Set(temp)];
+});
+
+const genderlist = computed(()=>{
+	const temp = catList.value.map(item => item.gender)
+	return [... new Set(temp)];
+});
+
 const goToDetail = (id) => { uni.navigateTo({ url: `/pages/detail/detail?id=${id}` }); };
 
 onShow(() => { fetchCats(); });
@@ -128,7 +208,11 @@ onShow(() => { fetchCats(); });
 
 <style scoped>
 .container { min-height: 100vh; background-color: #f5f7fa; padding: 12px; }
-.top-action-bar { display: flex; justify-content: space-between; align-items: center; background-color: #fff; padding: 12px 16px; border-radius: 12px; margin-bottom: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.03); }
+.search-area { display: flex; align-items: center; background-color: #ffffff;}
+.input-box { background-color: #aaffff; font-size: 14px; color: #00ff00; padding: 8 8 px; border-style:inset; border-width:2px;margin-left: 5px;}
+.search-box { background-color: #ff5500; font-size: 12px; color: #000000; }
+.top-action-bar { display: flex;justify-content: space-between; align-items: center; background-color: #fff; padding: 12px 16px; border-radius: 12px; margin-bottom: 0px; box-shadow: 0 2px 8px rgba(0,0,0,0.03); }
+.top-action-bar2 { display: flex; justify-content: space-between; align-items: center; background-color: #fff; padding:12px 16px; border-radius: 12px; margin-bottom: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.03); }
 .discover-btn { background-color: #fff3e0; color: #ff8c00; padding: 6px 12px; border-radius: 20px; font-weight: bold; font-size: 14px; display: flex; align-items: center; }
 .filter-area { display: flex; align-items: center; background-color: #f5f5f5; padding: 6px 12px; border-radius: 16px; }
 .filter-text { font-size: 13px; color: #666; }

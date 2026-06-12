@@ -9,6 +9,8 @@
     <view class="tabs-container">
       <view :class="['tab-item', currentTab === 'pending' ? 'active-tab' : '']" @click="currentTab = 'pending'">待审核</view>
       <view :class="['tab-item', currentTab === 'published' ? 'active-tab' : '']" @click="currentTab = 'published'">已发布(管理)</view>
+	  <view :class="['tab-item', currentTab === 'goods' ? 'active-tab' : '']" @click="currentTab = 'goods'">物资管理</view>
+	  <view :class="['tab-item', currentTab === 'bank' ? 'active-tab' : '']" @click="currentTab = 'bank'">账目管理</view>
     </view>
 
     <view class="cat-list">
@@ -51,6 +53,95 @@
         </view>
       </view>
     </view>
+	
+	<!-- 物资管理界面-->
+	<view v-show="currentTab ==='goods'">
+		<view class="culumn">
+			<view>
+				<view>
+					<text>物品存余</text>
+				</view>
+			</view>
+		</view>
+		
+		<view class="culumn">
+			<view>
+				<view><text>上传物品改动</text></view>
+				<view v-for="goods in goodsList" :key="goods.item" class="cat-list1">
+					<view>
+						<text class="iname">{{goods.item}}:</text>
+						<text class="inum">{{goods.op===0 ? goods.num+goods.temp :goods.num-goods.temp}}</text>
+						<view class="changehead">
+							<button :disabled="goods.op===1" @click="goods.op=1" class="but1">存</button>
+							<button :disabled="goods.op===0" @click="goods.op=0" class="but1">取</button>
+						</view>
+						<text class="iname">数量：</text>
+						<view class="changehead">
+							<button :disabled="goods.temp <=0" @click="goods.temp--" class="but2">-</button>
+							<input type="text" v-model.number="goods.temp" @blur="handBlur(goods)" class="input1"/>
+							<button :disabled="goods.op===1&&goods.temp>=goods.num" @click="goods.temp++" class="but2">+</button>
+						</view>
+						<text class="iname">备注：</text>
+						<input type="text" v-model="goods.remark" placeholder="填入备注" class="input2"/>
+						<text></text>
+					</view>
+				</view>
+			</view>
+		</view>
+		
+		<view class="mask" v-show="showGoodsform" @click="showGoodsform=false">
+			<view class="confirm">
+				<text class="head2">您已做如下改动</text>
+				<view v-for="goods in goodsList" :key="goods.item" class="region">
+					<view v-if="goods.temp!=0">
+						<text class="nape">{{goods.op===0 ? '存' : '取'}}{{goods.temp}}个{{goods.item}}</text><br>
+					</view>
+				</view>
+				<button >确认</button>
+			</view>
+		</view>
+		
+		<view>
+			<view class="Chbut">
+				<button @click="showGoodsform=true">改动</button>
+			</view>
+		</view>
+	</view>
+	<!-- 账目管理界面-->
+	<view v-show="currentTab ==='bank' ">
+		<view class="center" @click="Banksta=0">
+			<view>
+				<!-- 总金额-->
+				<text class="head2">当前金额</text>
+			</view>
+			<view>
+				<!-- 操作历史-->
+				<view v-for="op in bankList" :key="op.time">
+					<text class="nape">{{op.name}}于{{op.time}}{{op.type}}{{op.num}}</text>
+				</view>
+			</view>
+			<view class="bill" v-show="Banksta!=0" @click.stop>
+				<!--上报表-->
+				<text>金额：</text>
+				<input type="text" v-model.number="billnum" placeholder="输入金额" class="input1" />
+				<text>备注：</text>
+				<input type="text" v-model="billmark" placeholder="备注" class="input2"/>
+				<view  @click="chooseImage" class="upload-section">
+				  <image v-if="tempImagePath" :src="tempImagePath" mode="aspectFill" class="preview-img"></image>
+				  <view v-else class="upload-placeholder">
+				    <text class="plus-icon">+</text>
+				    <text>上传支票</text>
+				  </view>
+				</view>
+				<button @click="Banksta=0" class="but3">{{Banksta===1? '存':'取'}}</button>
+			</view>
+			<view  @click.stop v-if="Banksta===0">
+				<button @click="Banksta=1"> 存</button>
+				<button @click="Banksta=2">取</button>
+				<!--选择按钮-->
+			</view>
+		</view>
+	</view>
 
     <!-- 修改信息的隐藏弹窗 -->
     <view class="modal-mask" v-if="showEditModal">
@@ -70,17 +161,42 @@
 </template>
 
 <script setup>
-import { ref } from 'vue';
+import { computed, ref } from 'vue';
 import { onShow } from '@dcloudio/uni-app';
 import { config } from '@/config.js';
 
 const currentTab = ref('pending'); // 当前激活的Tab，默认待审核
 const pendingCats = ref([]);
 const publishedCats = ref([]);
+const goodsList = ref([{item:'猫粮',num:3,temp:0,op:0 ,remark:''}]);
+const bankList = ref([]);
 
 // 弹窗相关变量
 const showEditModal = ref(false);
 const editForm = ref({ id: '', name: '', location: '', character_desc: '' });
+
+const tempImagePath = ref('');
+const billnum=ref(0);
+const billmark=ref('');
+const Banksta = ref(2);
+const showGoodsform = ref(false);
+const handBlur = (goods) =>{
+	if (typeof goods.temp !== 'number' || isNaN(goods.temp) || goods.temp < 0) {
+	        goods.temp = 0;
+	} else {
+		goods.temp = Math.floor(goods.temp);
+	}
+};
+const chooseImage = () => {
+  uni.chooseImage({
+    count: 1,
+    sizeType: ['compressed'],
+    sourceType: ['album', 'camera'],
+    success: (res) => {
+      tempImagePath.value = res.tempFilePaths[0];
+    }
+  });
+};
 
 const formatImageUrl = (url) => {
   if (!url) {
@@ -207,4 +323,28 @@ onShow(() => { fetchPendingCats(); fetchPublishedCats(); });
 .edit-input { background: #f5f7fa; border-radius: 8px; padding: 10px; margin-bottom: 15px; font-size: 14px; }
 .modal-footer { display: flex; justify-content: space-between; gap: 15px; margin-top: 10px; }
 .modal-footer .btn { flex: 1; }
+
+/*物资样式*/
+.cat-list1{background-color: #55aaff; margin: 8px; border-radius: 10px; padding: 10px;}
+.iname{color: #005500; margin: 10px;}
+.inum{color: #aa0000; margin: 10px;}
+.but1{width: 7%;font-size: 10px;margin: 5px; background-color: #f56c6c; display: flex;justify-content: center;}
+.but2{width: 5%;margin: 2px; padding: 0px; display: flex;justify-content: center;background-color: #ffaa00;}
+.but3{width: 50%; padding: 0px; display: flex;justify-content: center;background-color: #ffaa00;}
+.input1{background-color: #d3d3d3;width: 15%;border-style: inset;}
+.input2{background-color: #d3d3d3;width: 60%;border-style: inset;margin: 10px;}
+.changehead{display: flex; align-items: center;}
+.culumn{margin: 5px;padding: 5px;background-color: #aaaaff;border-radius: 10px;}
+.Chbut{position: fixed; bottom: 0%; width: 100%;display:flex; justify-content: center;padding: 5px; background-color: #ff5500;}
+.mask { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0,0,0,0.5); z-index: 999; display: flex;justify-content: center;  align-items: center; }
+.confirm{position: fixed; padding: 5px; background-color: #d3d3d3;width: 50%;}
+.nape{padding: 2px;margin: 4px;}
+.region{background-color: #d3d3d3;padding: 3px;}
+.head2{margin: 2px;color: #005500;}
+.center{ justify-content: center;align-items: center;}
+.bill{background-color: #aaaaff; border-radius: 10px; padding: 5px;}
+.plus-icon { font-size: 32px; color: #ccc; margin-bottom: 4px; }
+.preview-img { width: 120px; height: 120px; border-radius: 12px; }
+.upload-section { display: flex; justify-content: center; margin-bottom: 25px;}
+.upload-placeholder {width: 100%;height: 120px; background-color: #f5f5f5; border: 2px dashed #e0e0e0; border-radius: 12px; display: flex; flex-direction: column; justify-content: center; align-items: center; color: #999; font-size: 12px;margin: 6rpx; }
 </style>

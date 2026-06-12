@@ -95,6 +95,60 @@ class FeedingRecord(db.Model):
         }
 
 
+class LedgerFund(db.Model):
+    """救助基金余额表"""
+    __tablename__ = "ledger_fund"
+    id = db.Column(db.Integer, primary_key=True)
+    total_balance = db.Column(db.Numeric(10, 2), default=0.00)
+    updated_at = db.Column(db.DateTime, default=datetime.now)
+
+    def to_dict(self):
+        return {"total_balance": str(self.total_balance)}
+
+
+class LedgerInventory(db.Model):
+    """物资库存表"""
+    __tablename__ = "ledger_inventory"
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    name = db.Column(db.String(50), nullable=False)
+    count = db.Column(db.String(20), nullable=False)      # 字符串展示，如5kg，12支，半瓶
+    unit = db.Column(db.String(10))                       # 单位
+    quantity = db.Column(db.Float, default=0)             # 库存数量
+    alert_threshold = db.Column(db.Float, default=0)      # 临界值
+    updated_at = db.Column(db.DateTime, default=datetime.now)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "name": self.name,
+            "count": self.count,
+            "isAlert": self.quantity <= self.alert_threshold
+                if self.alert_threshold > 0 else False,
+        }
+
+
+class LedgerTransaction(db.Model):
+    """账目流水表，每笔账单的收入/支出"""
+    __tablename__ = "ledger_transactions"
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    desc = db.Column(db.String(200), nullable=False)       # 描述
+    amount = db.Column(db.Numeric(10, 2), nullable=False)  # 金额
+    type = db.Column(db.String(10), nullable=False)        # income / expense
+    invoice_url = db.Column(db.String(255), default="")    # 凭证图片URL
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.now)
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "desc": self.desc,
+            "date": self.created_at.strftime("%Y-%m-%d") if self.created_at else "",
+            "amount": str(self.amount),
+            "type": self.type,
+            "invoiceUrl": self.invoice_url or "",
+        }
+
+
 def save_uploaded_image(*field_names):
     for field_name in field_names:
         image_file = request.files.get(field_name)
@@ -132,6 +186,32 @@ def init_db():
         audit_status="published",
     )
     db.session.add_all([cat1, cat2])
+
+    # ---- 阳光账本种子数据 ----
+
+    fund = LedgerFund(total_balance=1250.00)
+    db.session.add(fund)
+
+    inventory_seed = [
+        LedgerInventory(name="幼猫猫粮",   count="5kg",   unit="kg", quantity=5,   alert_threshold=2),
+        LedgerInventory(name="成猫猫粮",   count="0.5kg", unit="kg", quantity=0.5, alert_threshold=2),
+        LedgerInventory(name="驱虫药",     count="12支",  unit="支", quantity=12,  alert_threshold=3),
+        LedgerInventory(name="豆腐猫砂",   count="1袋",   unit="袋", quantity=1,   alert_threshold=2),
+        LedgerInventory(name="鸡肉主食罐", count="35罐",  unit="罐", quantity=35,  alert_threshold=10),
+        LedgerInventory(name="营养猫条",   count="120支", unit="支", quantity=120, alert_threshold=30),
+        LedgerInventory(name="诱捕笼",     count="2个",   unit="个", quantity=2,   alert_threshold=1),
+        LedgerInventory(name="外伤碘伏",   count="半瓶",  unit="瓶", quantity=0.5, alert_threshold=1),
+    ]
+    db.session.add_all(inventory_seed)
+
+    txn_seed = [
+        LedgerTransaction(desc="购买成猫猫粮",   amount=150, type="expense",
+                          invoice_url="/api/uploads/demo_invoice_1.jpg"),
+        LedgerTransaction(desc="张同学爱心捐赠", amount=50,  type="income",
+                          invoice_url="/api/uploads/demo_invoice_2.jpg"),
+    ]
+    db.session.add_all(txn_seed)
+
     db.session.commit()
     return jsonify({"status": "success"})
 
@@ -414,6 +494,164 @@ def update_cat():
 
     db.session.commit()
     return jsonify({"status": "success"})
+
+
+#  阳光账本 API
+
+@app.route("/api/ledger/overview", methods=["GET"])
+def ledger_overview():
+    #返回余额 + 库存 + 最近10条流水
+    fund = LedgerFund.query.first()
+    total_balance = str(fund.total_balance) if fund else "0.00"
+
+    inventory = [item.to_dict() for item in LedgerInventory.query.all()]
+
+    recent = [t.to_dict() for t in LedgerTransaction.query
+              .order_by(LedgerTransaction.created_at.desc())
+              .limit(10).all()]
+
+    return jsonify({
+        "status": "success",
+        "data": {
+            "total_balance": total_balance,
+            "inventory": inventory,
+            "recent_transactions": recent,
+        }
+    })
+
+
+@app.route("/api/ledger/transactions", methods=["GET"])
+def ledger_transactions():
+    #分页 + 按类型筛选（可选）
+    page = request.args.get("page", 1, type=int)
+    limit = request.args.get("limit", 10, type=int)
+    trans_type = request.args.get("type", "").strip()
+
+    query = LedgerTransaction.query
+    if trans_type in ("income", "expense"):
+        query = query.filter_by(type=trans_type)
+
+    total = query.count()
+    items = (query
+             .order_by(LedgerTransaction.created_at.desc())
+             .offset((page - 1) * limit)
+             .limit(limit)
+             .all())
+
+    return jsonify({
+        "status": "success",
+        "data": [t.to_dict() for t in items],
+        "pagination": {"page": page, "limit": limit, "total": total}
+    })
+
+
+@app.route("/api/ledger/transactions", methods=["POST"])
+def add_ledger_transaction():
+    # 新增收入/支出记录，并更新总余额
+    data = request.json
+    desc = data.get("desc")
+    amount_raw = data.get("amount")
+    trans_type = data.get("type")
+    invoice_url = data.get("invoice_url", "")
+    user_id = data.get("user_id")
+
+    # 参数校验
+    if not all([desc, amount_raw is not None, trans_type]):
+        return jsonify({"status": "error", "message": "缺少必填项：desc, amount, type"}), 400
+    if trans_type not in ("income", "expense"):
+        return jsonify({"status": "error", "message": "type 必须为 income 或 expense"}), 400
+    try:
+        amount = float(amount_raw)
+    except (ValueError, TypeError):
+        return jsonify({"status": "error", "message": "amount 必须是有效数字"}), 400
+
+    # 写入流水
+    txn = LedgerTransaction(
+        desc=desc,
+        amount=amount,
+        type=trans_type,
+        invoice_url=invoice_url,
+        user_id=user_id
+    )
+    db.session.add(txn)
+
+    # 更新余额
+    fund = LedgerFund.query.first()
+    if not fund:
+        fund = LedgerFund(total_balance=0)
+        db.session.add(fund)
+    if trans_type == "income":
+        fund.total_balance = float(fund.total_balance or 0) + amount
+    else:
+        fund.total_balance = float(fund.total_balance or 0) - amount
+    fund.updated_at = datetime.now()
+
+    db.session.commit()
+    return jsonify({
+        "status": "success",
+        "data": txn.to_dict(),
+        "total_balance": str(fund.total_balance)
+    })
+
+
+@app.route("/api/ledger/inventory", methods=["POST"])
+def add_ledger_inventory():
+    # 新增物资
+    data = request.json
+    name = data.get("name")
+    count = data.get("count")
+    if not name or not count:
+        return jsonify({"status": "error", "message": "缺少必填项：name, count"}), 400
+
+    item = LedgerInventory(
+        name=name,
+        count=count,
+        unit=data.get("unit", ""),
+        quantity=float(data.get("quantity", 0)),
+        alert_threshold=float(data.get("alert_threshold", 0)),
+    )
+    db.session.add(item)
+    db.session.commit()
+    return jsonify({"status": "success", "data": item.to_dict()})
+
+
+@app.route("/api/ledger/inventory/<int:item_id>", methods=["PUT"])
+def update_ledger_inventory(item_id):
+    # 更新库存
+    item = LedgerInventory.query.get_or_404(item_id)
+    data = request.json
+    if "name" in data:
+        item.name = data["name"]
+    if "count" in data:
+        item.count = data["count"]
+    if "unit" in data:
+        item.unit = data["unit"]
+    if "quantity" in data:
+        item.quantity = float(data["quantity"])
+    if "alert_threshold" in data:
+        item.alert_threshold = float(data["alert_threshold"])
+    item.updated_at = datetime.now()
+    db.session.commit()
+    return jsonify({"status": "success", "data": item.to_dict()})
+
+
+@app.route("/api/ledger/inventory/<int:item_id>", methods=["DELETE"])
+def delete_ledger_inventory(item_id):
+    # 删除物资
+    item = LedgerInventory.query.get_or_404(item_id)
+    db.session.delete(item)
+    db.session.commit()
+    return jsonify({"status": "success"})
+
+
+# 凭证图片上传
+
+@app.route("/api/ledger/upload_invoice", methods=["POST"])
+def upload_invoice():
+    uploaded_url = save_uploaded_image("file")
+    if not uploaded_url:
+        return jsonify({"status": "error", "message": "未选择文件"}), 400
+    return jsonify({"status": "success", "url": uploaded_url})
 
 
 with app.app_context():

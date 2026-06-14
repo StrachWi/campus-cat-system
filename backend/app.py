@@ -160,6 +160,28 @@ def save_uploaded_image(*field_names):
     return ""
 
 
+def get_required_int(data, key):
+    value = data.get(key)
+    if value in (None, ""):
+        raise ValueError(key)
+    return int(value)
+
+
+def get_required_float(data, key):
+    value = data.get(key)
+    if value in (None, ""):
+        raise ValueError(key)
+    return float(value)
+
+
+def format_inventory_count(quantity, unit=""):
+    if float(quantity).is_integer():
+        quantity_text = str(int(quantity))
+    else:
+        quantity_text = str(quantity)
+    return f"{quantity_text}{unit or ''}"
+
+
 @app.route("/api/init_db", methods=["GET"])
 def init_db():
     db.drop_all()
@@ -439,7 +461,7 @@ def get_user_issued_cats():
         ],
     })
 
-
+#管理端
 @app.route("/api/admin/pending_cats", methods=["GET"])
 def get_pending_cats():
     cats = Cat.query.filter_by(audit_status="pending").all()
@@ -496,8 +518,106 @@ def update_cat():
     return jsonify({"status": "success"})
 
 
-#  阳光账本 API
+# 阳光账本 API
 
+# 管理端
+@app.route("/api/admin/bank", methods=["POST"])
+def admin_bank():
+    if request.is_json:
+        data = request.get_json() or {}
+        try:
+            user_id = get_required_int(data, "user_id")
+            operate = get_required_int(data, "operate")
+            num = get_required_float(data, "num")
+        except (TypeError, ValueError):
+            return jsonify({"status": "error", "message": "invalid params"}), 400
+
+        item_name = (data.get("item") or "").strip()
+        remark = (data.get("remark") or "").strip()
+
+        if operate not in (1, 2) or num <= 0 or not item_name:
+            return jsonify({"status": "error", "message": "invalid params"}), 400
+
+        item = LedgerInventory.query.filter_by(name=item_name).first()
+        if not item:
+            item = LedgerInventory(
+                name=item_name,
+                count="0",
+                unit="",
+                quantity=0,
+                alert_threshold=0,
+            )
+            db.session.add(item)
+
+        current_quantity = float(item.quantity or 0)
+        if operate == 1:
+            item.quantity = current_quantity + num
+        else:
+            if current_quantity < num:
+                return jsonify({"status": "error", "message": "insufficient stock"}), 400
+            item.quantity = current_quantity - num
+
+        item.count = format_inventory_count(float(item.quantity or 0), item.unit)
+        item.updated_at = datetime.now()
+        db.session.commit()
+
+        return jsonify({
+            "status": "success",
+            "data": item.to_dict(),
+            "meta": {
+                "user_id": user_id,
+                "operate": operate,
+                "num": num,
+                "remark": remark,
+            }
+        })
+
+    form = request.form
+    try:
+        user_id = get_required_int(form, "user_id")
+        amount = get_required_float(form, "num")
+        record_type = get_required_int(form, "type")
+    except (TypeError, ValueError):
+        return jsonify({"status": "error", "message": "invalid params"}), 400
+
+    remark = (form.get("remark") or "").strip()
+    if amount <= 0 or record_type not in (1, 2) or not remark:
+        return jsonify({"status": "error", "message": "invalid params"}), 400
+
+    invoice_url = save_uploaded_image("image")
+    if not invoice_url:
+        return jsonify({"status": "error", "message": "invoice image required"}), 400
+
+    trans_type = "income" if record_type == 1 else "expense"
+    transaction = LedgerTransaction(
+        desc=remark,
+        amount=amount,
+        type=trans_type,
+        invoice_url=invoice_url,
+        user_id=user_id,
+    )
+    db.session.add(transaction)
+
+    fund = LedgerFund.query.first()
+    if not fund:
+        fund = LedgerFund(total_balance=0)
+        db.session.add(fund)
+
+    if trans_type == "income":
+        fund.total_balance = float(fund.total_balance or 0) + amount
+    else:
+        fund.total_balance = float(fund.total_balance or 0) - amount
+    fund.updated_at = datetime.now()
+
+    db.session.commit()
+    return jsonify({
+        "status": "success",
+        "data": transaction.to_dict(),
+        "total_balance": str(fund.total_balance),
+    })
+
+
+# 用户端
 @app.route("/api/ledger/overview", methods=["GET"])
 def ledger_overview():
     #返回余额 + 库存 + 最近10条流水

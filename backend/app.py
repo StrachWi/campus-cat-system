@@ -1,10 +1,12 @@
 import os
+from functools import wraps
 from datetime import datetime
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
+from config import ADMIN_PASSWORD, ADMIN_TOKEN
 
 app = Flask(__name__)
 CORS(app)
@@ -180,6 +182,28 @@ def format_inventory_count(quantity, unit=""):
     else:
         quantity_text = str(quantity)
     return f"{quantity_text}{unit or ''}"
+
+
+def get_admin_token_from_request():
+    token = request.headers.get("X-Admin-Token")
+    if token:
+        return token
+
+    if request.is_json:
+        data = request.get_json(silent=True) or {}
+        return data.get("admin_token")
+
+    return request.form.get("admin_token") or request.args.get("admin_token")
+
+
+def require_admin(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        if get_admin_token_from_request() != ADMIN_TOKEN:
+            return jsonify({"status": "error", "message": "unauthorized"}), 401
+        return func(*args, **kwargs)
+
+    return wrapper
 
 
 @app.route("/api/init_db", methods=["GET"])
@@ -462,13 +486,24 @@ def get_user_issued_cats():
     })
 
 #管理端
+@app.route("/api/admin/login", methods=["POST"])
+def admin_login():
+    data = request.get_json(silent=True) or {}
+    if data.get("password") != ADMIN_PASSWORD:
+        return jsonify({"status": "error", "message": "invalid admin password"}), 401
+
+    return jsonify({"status": "success", "admin_token": ADMIN_TOKEN})
+
+
 @app.route("/api/admin/pending_cats", methods=["GET"])
+@require_admin
 def get_pending_cats():
     cats = Cat.query.filter_by(audit_status="pending").all()
     return jsonify({"status": "success", "data": [c.to_dict() for c in cats]})
 
 
 @app.route("/api/admin/review_cat", methods=["POST"])
+@require_admin
 def review_cat():
     data = request.json
     cat_id = data.get("cat_id")
@@ -485,6 +520,7 @@ def review_cat():
 
 
 @app.route("/api/admin/delete_cat", methods=["POST"])
+@require_admin
 def delete_cat():
     data = request.json
     cat_id = data.get("cat_id")
@@ -502,6 +538,7 @@ def delete_cat():
 
 
 @app.route("/api/admin/update_cat", methods=["POST"])
+@require_admin
 def update_cat():
     data = request.json
     cat_id = data.get("cat_id")
@@ -522,6 +559,7 @@ def update_cat():
 
 # 管理端
 @app.route("/api/admin/bank", methods=["POST"])
+@require_admin
 def admin_bank():
     if request.is_json:
         data = request.get_json() or {}

@@ -385,6 +385,32 @@ def get_pending_count():
     count = Cat.query.filter_by(audit_status="pending").count()
     return jsonify({"status": "success", "count": count})
 
+@app.route("/api/cats/<int:cat_id>/feed", methods=["POST"])
+def feed_cat(cat_id):
+    data = request.json
+    meal = data.get("meal")
+    action = data.get("action")
+    user_id = data.get("user_id")
+
+    if not user_id:
+        return jsonify({"status": "error"}), 400
+
+    cat = Cat.query.get_or_404(cat_id)
+    current_claimer = getattr(cat, f"{meal}_claimer")
+
+    if action == "claim":
+        if current_claimer:
+            return jsonify({"status": "error"}), 400
+        setattr(cat, f"{meal}_claimer", user_id)
+    elif action == "cancel":
+        if current_claimer != user_id:
+            return jsonify({"status": "error"}), 403
+        setattr(cat, f"{meal}_claimer", "")
+
+    db.session.commit()
+    return jsonify(
+        {"status": "success", "new_claimer": getattr(cat, f"{meal}_claimer")}
+    )
 
 @app.route("/api/cats/feeding", methods=["POST", "GET"])
 def handle_feeding():

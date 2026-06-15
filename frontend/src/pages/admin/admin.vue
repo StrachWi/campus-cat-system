@@ -68,12 +68,13 @@
 			<view>
 				<view><text>上传物品改动</text></view>
 				<view v-for="goods in goodsList" :key="goods.item" class="cat-list1">
-					<view>
-						<text class="iname">{{goods.item}}:</text>
-						<text class="inum">{{goods.op===0 ? goods.num+goods.temp :goods.num-goods.temp}}</text>
+					<view :class="[goods.temp!=0 ? 'color2': '']">
+						<text class="iname">{{goods.name}}: (库存</text>
+						<text class="inum">{{goods.count}})</text>
 						<view class="changehead">
 							<button :disabled="goods.op===1" @click="goods.op=1" class="but1">存</button>
 							<button :disabled="goods.op===0" @click="goods.op=0" class="but1">取</button>
+							<button @click='handleDel(goods)' class="color2">{{goods.id ? '移除' : '撤回'}}</button>
 						</view>
 						<text class="iname">数量：</text>
 						<view class="changehead">
@@ -86,15 +87,28 @@
 						<text></text>
 					</view>
 				</view>
+				<view class="cat-list1">
+					<text>物品</text>
+					<input type="text" v-model="newgoods.name" placeholder="填入物品名" class="input2"/>
+					<text class="iname">数量：</text>
+					<view class="changehead">
+						<button :disabled="newgoods.temp <=0" @click="newgoods.temp--" class="but2">-</button>
+						<input type="text" v-model.number="newgoods.temp" @blur="handBlur(newgoods)" class="input1"/>
+						<button @click="newgoods.temp++" class="but2">+</button>
+					</view>
+					<text class="iname">备注</text>
+					<input type="text" v-model="newgoods.remark" placeholder="填入备注" class="input2"/>
+					<text></text>
+				</view>
 			</view>
 		</view>
 		
-		<view class="mask" v-show="showGoodsform" @click="showGoodsform=false">
-			<view class="confirm">
+		<view class="mask" v-if="showGoodsform" @click="showGoodsform=false">
+			<view class="confirm" @click.stop>
 				<text class="head2">您已做如下改动</text>
-				<view v-for="goods in goodsList" :key="goods.item" class="region">
+				<view v-for="goods in goodsList" :key="goods.name" class="region">
 					<view v-if="goods.temp!=0">
-						<text class="nape">{{goods.op===0 ? '存' : '取'}}{{goods.temp}}个{{goods.item}}</text><br>
+						<text class="nape">{{goods.op===0 ? '存' : '取'}}{{goods.temp}}个{{goods.name}}</text><text @click="goods.temp = 0">__[x]</text><br>
 					</view>
 				</view>
 				<button @click="handleGoods">确认</button>
@@ -103,21 +117,30 @@
 		
 		<view>
 			<view class="Chbut">
-				<button @click="showGoodsform=true">改动</button>
+				<button @click="Change()">改动</button>
 			</view>
 		</view>
 	</view>
 	<!-- 账目管理界面-->
 	<view v-show="currentTab ==='bank' ">
 		<view class="center">
-			<view>
+			<view class="total">
 				<!-- 总金额-->
-				<text class="head2">当前金额</text>
+				<text class="head2">当前金额:{{balance}}</text>
 			</view>
-			<view>
+			<view class="operate">
 				<!-- 操作历史-->
-				<view v-for="op in bankList" :key="op.time">
-					<text class="nape">{{op.name}}于{{op.time}}{{op.type}}{{op.num}}</text>
+				<view v-for="bill in bankList" :key="bill.desc" @click="previewInvoice(bill.invoiceUrl)" class="billvoice">
+					<view class="bill-left">
+					    <text class="bill-desc">{{ bill.desc }}</text>
+					    <text class="bill-date">{{ bill.date }}</text>
+					</view>
+					<view class="bill-right">
+						<text class="bill-amount" :class="bill.type === 'income' ? 'green' : 'red'">
+						{{ bill.type === 'income' ? '+' : '-' }} {{ bill.amount }}元
+						</text>
+						<text class="arrow-icon">></text>
+					</view>
 				</view>
 			</view>
 			<view class="bill" v-show="Banksta!=0" @click.stop>
@@ -170,9 +193,11 @@ const currentTab = ref('pending'); // 当前激活的Tab，默认待审核
 const user_id = ref('');
 const pendingCats = ref([]);
 const publishedCats = ref([]);
-const goodsList = ref([{item:'猫粮',num:3,temp:0,op:0 ,remark:''}]);
+const goodsList = ref([]);
 const bankList = ref([]);
-
+const balance = ref('1250.00');
+const newgoods = ref({name:'',op:0,temp:0,remark:''});
+const token = ref('');
 // 弹窗相关变量
 const showEditModal = ref(false);
 const editForm = ref({ id: '', name: '', location: '', character_desc: '' });
@@ -185,10 +210,10 @@ const showGoodsform = ref(false);
 const handBlur = (goods) =>{
 	if (typeof goods.temp !== 'number' || isNaN(goods.temp) || goods.temp < 0) {
 	        goods.temp = 0;
-	} else {
-		goods.temp = Math.floor(goods.temp);
 	}
 };
+
+
 const chooseImage = () => {
   uni.chooseImage({
     count: 1,
@@ -198,6 +223,57 @@ const chooseImage = () => {
       tempImagePath.value = res.tempFilePaths[0];
     }
   });
+};
+
+const handleCancel = (goods)=>{
+	goods.temp  = 0;
+	goodsList.value = goodsList.value.filter(it =>{
+		return it.temp||it.id;
+	});
+};
+
+const handleDel = (goods)=>{
+	if(goods.id) {
+		uni.showModal({
+			title:`要移除${goods.name}吗?`,
+			success: (res) => {
+				if(res.confirm){
+					const URL = `${config.baseUrl}/api/ledger/inventory/${goods.id}`;
+					uni.request({
+						url:URL, method:'DELETE',header:{'X-Admin-Token':token.value},
+						success:(res) =>{
+							if(res.data.status === 'success'){
+								uni.showToast({
+									title:'删除成功'
+								});
+							}
+							
+						}
+					});
+					goods.id = '';
+					goods.temp = 0;
+					goodsList.value = goodsList.value.filter(it =>{
+						return it.temp || it.id;
+					});
+				}
+			}
+		});
+	}
+	else{
+		goods.temp = 0;
+		goodsList.value = goodsList.value.filter(it =>{
+			return it.temp || it.id;
+		});
+	}
+};
+
+const Change=()=>{
+	
+	if(newgoods.value.temp != 0 && newgoods.value.name!=''){
+		goodsList.value.push(newgoods.value)
+	}
+	newgoods.value = {name:'',op:0,temp:0,remark:''};
+	showGoodsform.value=true;
 };
 
 const formatImageUrl = (url) => {
@@ -223,16 +299,87 @@ const formatImageUrl = (url) => {
   return newUrl;
 };
 
+const previewInvoice = (url) => {
+  if (!url) {
+    uni.showToast({ title: '这条记录暂无凭证', icon: 'none' })
+    return
+  }
+  
+  uni.previewImage({
+    urls: [url],     
+    current: url     
+  })
+}
 
-const handleGoods = () =>{
-	const templist = goodsList.value.filter(ch =>{
-		return ch.temp != 0;
-	});
-	for (const goods in goodsList){
-		uni.request({
-			url: `${config.baseUrl}/api/admin/goods`,method:'POST',data:{user_id: user_id , operate:goods.op+1 , num:goods.temp , item: goods.item , remark: goods.remark}
+const handleGoods = async() =>{
+	const templist = goodsList.value.filter(it =>{
+		return it.temp!=0;
+	})
+	for (const goods of templist) {
+	        try {
+	            const res = await uni.request({
+	                url: `${config.baseUrl}/api/admin/bank`,header:{'X-Admin-Token':token.value},
+	                method: 'POST',
+	                data: {
+	                    user_id: user_id.value, 
+	                    operate: goods.op + 1, 
+	                    num: goods.temp, 
+	                    item: goods.name, 
+	                    remark: goods.remark
+	                }
+	            });
+	
+	            // 3. 接口返回后，才会执行这里的逻辑
+	            if (res.data.status === 'success') {
+	                const targetItem = goodsList.value.find(item => item.id === res.data.data.id);
+	                if (targetItem) {
+	                    targetItem.count = res.data.data.count;
+	                } else {
+	                    // 记得加上 String() 防止类型不匹配
+	                    const tar = goodsList.value.find(item => 
+	                        String(item.name) === String(res.data.data.name)
+	                    );
+	                    if (tar) {
+	                        tar.id = res.data.data.id;
+	                        tar.count = res.data.data.count;
+	                    }
+	                }
+	            }
+	        } catch (err) {
+	            // 4. 使用 try...catch 捕获 fail 的情况
+	            console.error(err);
+	            uni.showToast({ title: '上传失败，请检查网络', icon: 'none' });
+	        }
+	    }
+	
+	    // 5. 只有当所有的请求都处理完毕后，才会执行到这里！
+	    goodsList.value = goodsList.value.filter(it =>{
+			it.temp = 0;
+			return it.id;
 		});
-	};
+		showGoodsform.value = false;
+};
+
+const getinfo= ()=>{
+	uni.request({
+		url: `${config.baseUrl}/api/ledger/overview`,method:'GET',header:{'X-Admin-Token':token.value},
+		success: (res) => {
+			let temp = res.data.data.inventory;
+			bankList.value = res.data.data.recent_transactions;
+			balance.value = res.data.data.total_balance;
+			temp.forEach(it =>{
+				it.temp = 0;
+				it.remark = '';
+				it.op = 0;
+			});
+			goodsList.value = temp;
+		},
+		fail: (err) => {
+			uni.hideLoading();
+			console.error(err);
+			uni.showToast({ title: '获取数据失败，请检查网络', icon: 'none' });
+		}
+	})
 };
 
 const handleBank = ()=>{
@@ -248,14 +395,14 @@ const handleBank = ()=>{
 	
 	uni.uploadFile({
 	  url: `${config.baseUrl}/api/admin/bank`,
-	  method: 'POST',
+	  method: 'POST',header:{'X-Admin-Token':token.value},
 	  filePath: tempImagePath.value,
 	  name: 'image',
 	  formData: {
-	    user_id:user_id,
-		num: billnum,
-		type: Banksta,
-		remark: billmark
+	    user_id:user_id.value,
+		num: billnum.value,
+		type: Banksta.value,
+		remark: billmark.value
 	  },
 	  success: (res) => {
 	    uni.hideLoading();
@@ -266,6 +413,8 @@ const handleBank = ()=>{
 	    } else {
 	      uni.showToast({ title: '提交失败，请重试', icon: 'none' });
 	    }
+		balance.value = data.total_balance;
+		bankList.value.push(data.data);
 	  },
 	  fail: (err) => {
 	    uni.hideLoading();
@@ -273,22 +422,15 @@ const handleBank = ()=>{
 	    uni.showToast({ title: '上传失败，请检查网络', icon: 'none' });
 	  }
 	});
-	Banksta = 0;
+	Banksta.value = 0;
 };
 
 
-const fetchGoodslist = ()=>{
-	const temp =ref([]);
-	uni.request({
-	  url: `${config.baseUrl}/api/admin/pending_cats`, //暂定
-	  success: (res) => { if (res.data?.status === 'success') temp.value = res.data.data; }
-	});
-};
 
 // 1. 获取待审核数据
 const fetchPendingCats = () => {
   uni.request({
-    url: `${config.baseUrl}/api/admin/pending_cats`,
+    url: `${config.baseUrl}/api/admin/pending_cats`,header:{'X-Admin-Token':token.value},
     success: (res) => { if (res.data?.status === 'success') pendingCats.value = res.data.data; }
   });
 };
@@ -296,7 +438,7 @@ const fetchPendingCats = () => {
 // 2. 获取已发布数据 (借用首页的接口)
 const fetchPublishedCats = () => {
   uni.request({
-    url: `${config.baseUrl}/api/cats`,
+    url: `${config.baseUrl}/api/cats`,header:{'X-Admin-Token':token.value},
     success: (res) => { if (res.data?.status === 'success') publishedCats.value = res.data.data; }
   });
 };
@@ -304,7 +446,7 @@ const fetchPublishedCats = () => {
 // 3. 处理审核 (旧功能)
 const handleReview = (id, action) => {
   uni.request({
-    url: `${config.baseUrl}/api/admin/review_cat`, method: 'POST', data: { cat_id: id, action: action },
+    url: `${config.baseUrl}/api/admin/review_cat`, method: 'POST',header:{'X-Admin-Token':token.value}, data: { cat_id: id, action: action },
     success: () => {
       uni.showToast({ title: '操作成功' });
       fetchPendingCats(); // 刷新待审核列表
@@ -320,7 +462,7 @@ const handleDelete = (id) => {
     success: (res) => {
       if (res.confirm) {
         uni.request({
-          url: `${config.baseUrl}/api/admin/delete_cat`, method: 'POST', data: { cat_id: id },
+          url: `${config.baseUrl}/api/admin/delete_cat`, method: 'POST',header:{'X-Admin-Token':token.value}, data: { cat_id: id },
           success: () => { uni.showToast({ title: '已彻底删除' }); fetchPublishedCats(); }
         });
       }
@@ -337,7 +479,7 @@ const openEditModal = (cat) => {
 // 6. 提交修改并保存到数据库 (新功能)
 const submitEdit = () => {
   uni.request({
-    url: `${config.baseUrl}/api/admin/update_cat`, method: 'POST',
+    url: `${config.baseUrl}/api/admin/update_cat`, method: 'POST', header:{'X-Admin-Token':token.value},
     data: { cat_id: editForm.value.id, name: editForm.value.name, location: editForm.value.location, character_desc: editForm.value.character_desc },
     success: () => {
       uni.showToast({ title: '信息已更新' });
@@ -348,7 +490,8 @@ const submitEdit = () => {
 };
 
 // 每次进入页面时，把两边的数据都拉取一次
-onShow(() => { user_id.value = uni.getStorageSync('mock_user_id'); fetchPendingCats(); fetchPublishedCats(); });
+onShow(() => { user_id.value = uni.getStorageSync('real_user_id'); token.value = uni.getStorageSync('admin_token'); fetchPendingCats(); fetchPublishedCats(); getinfo();
+});
 </script>
 
 <style scoped>
@@ -389,18 +532,19 @@ onShow(() => { user_id.value = uni.getStorageSync('mock_user_id'); fetchPendingC
 .modal-footer .btn { flex: 1; }
 
 /*物资样式*/
-.cat-list1{background-color: #55aaff; margin: 8px; border-radius: 10px; padding: 10px;}
+.cat-list1{background-color: #55aaff; margin: 20px; border-radius: 10px; padding: 10px;}
+.color2{background-color: #aa0000;}
 .iname{color: #005500; margin: 10px;}
 .inum{color: #aa0000; margin: 10px;}
 .but1{width: 7%;font-size: 10px;margin: 5px; background-color: #f56c6c; display: flex;justify-content: center;}
 .but2{width: 5%;margin: 2px; padding: 0px; display: flex;justify-content: center;background-color: #ffaa00;}
 .but3{width: 50%; padding: 0px; display: flex;justify-content: center;background-color: #ffaa00; margin-bottom: 4px;}
-.but4{background-color: #4facfe;}
+.but4{background-color: #4facfe;margin: 15px;}
 .input1{background-color: #d3d3d3;width: 15%;border-style: inset;}
 .input2{background-color: #d3d3d3;width: 60%;border-style: inset;margin: 10px;}
 .changehead{display: flex; align-items: center;}
-.culumn{margin: 5px;padding: 5px;background-color: #aaaaff;border-radius: 10px;}
-.Chbut{position: fixed; bottom: 0%; width: 100%;display:flex; justify-content: center;padding: 5px; background-color: #ff5500;}
+.culumn{margin: 15px;padding: 20px;background-color: #aaaaff;border-radius: 10px;}
+.Chbut{position: fixed; bottom: 0%; left: 65%;width: 30%;display:flex; justify-content: center;padding: 5px; background-color: #ff5500;}
 .mask { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background-color: rgba(0,0,0,0.5); z-index: 999; display: flex;justify-content: center;  align-items: center; }
 .confirm{position: fixed; padding: 5px; background-color: #d3d3d3;width: 50%;}
 .nape{padding: 2px;margin: 4px;}
@@ -412,4 +556,15 @@ onShow(() => { user_id.value = uni.getStorageSync('mock_user_id'); fetchPendingC
 .preview-img { width: 120px; height: 120px; border-radius: 12px; }
 .upload-section { display: flex; justify-content: center; margin-bottom: 25px;}
 .upload-placeholder {width: 100%;height: 120px; background-color: #f5f5f5; border: 2px dashed #e0e0e0; border-radius: 12px; display: flex; flex-direction: column; justify-content: center; align-items: center; color: #999; font-size: 12px;margin: 6rpx; }
+
+.bill-left { display: flex; flex-direction: column; flex: 1; }
+.bill-desc { font-size: 15px; color: #333; font-weight: 500;}
+.bill-date { font-size: 12px; color: #999; margin-top: 6px; }
+.arrow-icon { color: #ccc; font-size: 16px; font-family: monospace; }
+.bill-right { display: flex; align-items: center; }
+.bill-amount { font-size: 16px; margin-right: 10px; font-family: 'Avenir', Helvetica, sans-serif;}
+
+.total{margin: 14px;}
+.operate{margin: 16px; background-color: #aaaaff; padding: 6px; border-radius: 9px;}
+.billvoice{background-color: #ffaaff;margin: 8px; padding: 6px;}
 </style>

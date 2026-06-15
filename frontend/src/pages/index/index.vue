@@ -75,7 +75,7 @@
 				</view>
 		  <view class="modal-footer">
 		    <button class="reset-btn" @click="colors=[]">重置全部</button>
-		    <button class="confirm-btn" @click="showFilter = false">确认</button>
+		    <button class="confirm-btn" @click="showPicker = false">确认</button>
 		  </view>
 		</view>
 	</view>

@@ -32,13 +32,13 @@
       
       <view class="meal-plan">
         <view class="meal-item" v-for="meal in ['morning', 'noon', 'evening']" :key="meal">
-          <view class="meal-info">
+          <view class="meal-info" >
             <text class="meal-name">{{ mealNameMap[meal] }}</text>
-            <text v-if="!catInfo.feed_status[meal]" class="meal-status status-pending">⌛ 待认领</text>
+            <text v-if="!catInfo.feed_status[meal] && trans2(meal)>=trans2(nowmeal)" class="meal-status status-pending">⌛ 待认领</text>
             <text v-else-if="catInfo.feed_status[meal] === myUserId" class="meal-status status-mine">✅ 我已认领</text>
             <text v-else class="meal-status status-others">🔒 已被其他爱心人士认领</text>
           </view>
-          <button v-if="!catInfo.feed_status[meal]" class="action-btn claim-btn" @click="handleFeedAction(meal, 'claim')">认领</button>
+          <button v-if="!catInfo.feed_status[meal]&&trans2(meal)>=trans2(nowmeal)" class="action-btn claim-btn" @click="handleFeedAction(meal, 'claim')">认领</button>
           <button v-else-if="catInfo.feed_status[meal] === myUserId" class="action-btn cancel-btn" @click="handleFeedAction(meal, 'cancel')">取消</button>
           <button v-else class="action-btn disabled-btn" disabled>已被认领</button>
         </view>
@@ -47,11 +47,12 @@
 	
 	<view class="meal-plan">
 		<view class="meal-item" v-for="feed in feedlist" :key = "feed">
-			<text>{{feed.user}}在{{mealNameMap[trans(feed.time)]}}投喂了{{feed.type}}</text>
+			<text>{{feed.username}}在{{mealNameMap[trans(feed.time)]}}投喂了{{feed.food}}</text>
 		</view>
 	</view>
 	
 	<footer class="float-bottom-btn">
+		<text>当前:{{mealNameMap[nowmeal]}}</text>
 		<view class="myinfo">
 		  <text v-if="!catInfo.feed_status[nowmeal]" class="meal-name1">还未有人来喂养</text>
 		  <text v-else-if="catInfo.feed_status[nowmeal] === myUserId" class="meal-name1">我已经认领的</text>
@@ -63,23 +64,23 @@
 	</footer>
   </view>
   
-	<div v-if="isDialogVisible" class="dialog-wrapper">
-      <div class="dialog">
+	<view v-if="isDialogVisible" class="dialog-wrapper">
+      <view class="dialog">
         <h3>喂养提报</h3>
         <form @submit.prevent="handleSubmit()">
-          <label>食物:</label>
+          <label>食物:{{food}}</label>
 		  <picker :value="foodtype" :range="foodlist" @change="onfoodch">
 			  <view class="picktype"> {{ foodlist[foodtype] }} </view>
 		  </picker>
 		  <label>是否喂水:
 		  <button type="button" :class=" ['check', checkbut ? 'ch-yes' : 'ch-no'] " @click="checkbut=!checkbut">是</button></label>
-          <div class="actions">
+          <view class="actions">
             <button type="submit" @click="handleSubmit()">提交</button>
             <button type="button" @click="closeDialog()">取消</button>
-          </div>
+          </view>
         </form>
-      </div>
-    </div>
+      </view>
+    </view>
   
 </template>
 
@@ -92,15 +93,16 @@ const catId = ref(null);
 const catInfo = ref({});
 const myUserId = ref(null);
 const mealNameMap = { morning: '早餐', noon: '午餐', evening: '晚餐' };
-const nowmeal = ref('morning')
+const nowmeal = ref('morning');
+
 
 const checkbut = ref(false);
 const isDialogVisible = ref(false);
-const food = ref('');
+const food = ref('猫条');
 const water = ref('');
 const foodtype = ref(0);
 const foodlist = ref([ '猫粮', '猫条', '零食']);
-const feedlist = ref([{user:'lihua',time:3,type:'猫条'}]);
+const feedlist = ref([{username:'lihua',time:3,food:'猫条'}]);
 
 const checkwater = ()=>{
 	checkbut = !checkbut;
@@ -116,14 +118,14 @@ const closeDialog = () => {
 };
 
 const trans = (meal) =>{
-	if(meal.value === 1) return 'morning';
-	else if(meal.value === 2) return 'noon';
+	if(meal === 1) return 'morning';
+	else if(meal === 2) return 'noon';
 	else return 'evening';
 };
 
 const trans2 = (ti) =>{
-	if(ti.value ==='morning') return 1;
-	else if(ti.value === 'noon') return 2;
+	if(ti ==='morning') return 1;
+	else if(ti === 'noon') return 2;
 	else return 3;
 };
 
@@ -133,19 +135,37 @@ const handleSubmit = () => {
 		success:(res)=>{
 			if(res.confirm)
 			  uni.request({
-			  	url:`${config.baseUrl}/api/cats/feeding` , method:'POST',data:{user_id:myUserId , cat_id:catId, time:trans2(nowmeal) , food:food.value ,water:water.value},
-				success: () => {
-					uni.showToast({
-						title:'formData'
-					})
+			  	url:`${config.baseUrl}/api/cats/feeding` , method:'POST',data:{user_id:myUserId.value , cat_id:catId.value, time:trans2(nowmeal) , food:food.value,water:water.value},
+				success: (res) => {
+					if(res.data.status === 'success'){
+						feedlist.value.push(res.data.data);
+						uni.showToast({
+						title:'提交成功'
+						})
+					}
+					else {uni.showToast({
+						title:'网络错误，稍后重试'
+					})}
 				}
 			  });
 		 }
 	});
-	fetchrecord();
-  closeDialog();
+	//fetchrecord();
+  isDialogVisible.value=false;
 };
 
+
+const gettime = ()=>{
+	const hour = new Date().getHours(); // 获取当前小时数 (0-23)
+	  
+	  if (hour >= 6 && hour < 11) {
+	    return 'morning';
+	  } else if (hour >= 11 && hour < 15) {
+	    return 'noon'; 
+	  } else {
+	    return 'evening'; 
+	  }
+};
 
 const fed = computed(()=>{
 	const temp = feedlist.value.filter(rec =>{
@@ -155,7 +175,7 @@ const fed = computed(()=>{
 
 const onfoodch =(e) =>{
 	foodtype.value = e.detail.value;
-	food.value = foodlist[foodtype.value];
+	food.value = foodlist.value[foodtype.value];
 };
 
 const initUserId = () => {
@@ -169,11 +189,13 @@ const initUserId = () => {
 
 onLoad((options) => {
   catId.value = options.id;
+  fetchrecord();
 });
 
 onShow(() => {
   initUserId();
   if (catId.value) fetchCatDetail();
+  nowmeal.value = gettime();
 });
 
 const formatImageUrl = (url) => {
@@ -220,7 +242,7 @@ const fetchCatDetail = () => {
 
 const fetchrecord=() =>{
 	uni.request({
-		url: `${config.baseUrl}/api/cats/feeding`,
+		url: `${config.baseUrl}/api/cats/${catId.value}/feeding`,
 		methon: 'GET',
 		success:(res) =>{
 			if(res.data.status == 'success') {

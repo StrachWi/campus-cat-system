@@ -1,3 +1,3 @@
 export const config = {
-    baseUrl: 'https://780c5fea.r27.cpolar.top'
+    baseUrl: 'http://172.22.46.197:5000'
 };

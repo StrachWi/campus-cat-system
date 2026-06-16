@@ -163,5 +163,14 @@ unpackage/
 *.sln
 *.sw?
 
+# 忽略 SQLite 数据库
+instance/
+*.db
+*.sqlite3
+
+# 忽略本地测试上传的图片，但保留 uploads 文件夹结构
+backend/static/uploads/*
+!backend/static/uploads/.gitkeep
+
 *.db
 **/test_p0_apis.*

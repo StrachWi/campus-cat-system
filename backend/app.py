@@ -4,15 +4,22 @@ from datetime import datetime
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import inspect, text
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
 from config import ADMIN_PASSWORD, ADMIN_TOKEN
 
-app = Flask(__name__)
+BASE_DIR = os.path.abspath(os.path.dirname(__file__))
+PROJECT_ROOT = os.path.abspath(os.path.join(BASE_DIR, os.pardir))
+INSTANCE_DIR = os.path.join(PROJECT_ROOT, "instance")
+
+app = Flask(__name__, instance_path=INSTANCE_DIR)
 CORS(app)
 
 # 本地开发：使用 SQLite
-app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///campus_cat.db"
+os.makedirs(INSTANCE_DIR, exist_ok=True)
+DB_PATH = os.path.join(INSTANCE_DIR, "campus_cat.db").replace("\\", "/")
+app.config["SQLALCHEMY_DATABASE_URI"] = f"sqlite:///{DB_PATH}"
 
 # 生产环境：连接 MySQL
 # app.config["SQLALCHEMY_DATABASE_URI"] = (
@@ -22,7 +29,7 @@ app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///campus_cat.db"
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db = SQLAlchemy(app)
 
-UPLOAD_FOLDER = os.path.join(os.getcwd(), "static", "uploads")
+UPLOAD_FOLDER = os.path.join(BASE_DIR, "static", "uploads")
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
 app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
@@ -120,12 +127,16 @@ class LedgerInventory(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.now)
 
     def to_dict(self):
+        quantity = float(self.quantity or 0)
         return {
             "id": self.id,
             "name": self.name,
             "count": self.count,
-            "isAlert": self.quantity <= self.alert_threshold
-                if self.alert_threshold > 0 else False,
+            "unit": self.unit or "",
+            "quantity": quantity,
+            "alert_threshold": float(self.alert_threshold or 0),
+            "isAlert": quantity <= float(self.alert_threshold or 0)
+                if float(self.alert_threshold or 0) > 0 else False,
         }
 
 
@@ -184,6 +195,64 @@ def format_inventory_count(quantity, unit=""):
     return f"{quantity_text}{unit or ''}"
 
 
+def get_or_create_fund():
+    fund = LedgerFund.query.first()
+    if not fund:
+        fund = LedgerFund(total_balance=0)
+        db.session.add(fund)
+    return fund
+
+
+def create_ledger_transaction(desc, amount, trans_type, invoice_url="", user_id=None):
+    transaction = LedgerTransaction(
+        desc=desc,
+        amount=amount,
+        type=trans_type,
+        invoice_url=invoice_url,
+        user_id=user_id,
+    )
+    db.session.add(transaction)
+
+    fund = get_or_create_fund()
+    current_balance = float(fund.total_balance or 0)
+    if trans_type == "income":
+        fund.total_balance = current_balance + amount
+    else:
+        fund.total_balance = current_balance - amount
+    fund.updated_at = datetime.now()
+
+    return transaction, fund
+
+
+def adjust_inventory(item_name, amount, operate, unit="", remark=""):
+    item_name = (item_name or "").strip()
+    if not item_name or amount <= 0 or operate not in (1, 2):
+        raise ValueError("invalid params")
+
+    item = LedgerInventory.query.filter_by(name=item_name).first()
+    if not item:
+        item = LedgerInventory(
+            name=item_name,
+            count="0",
+            unit=unit or "",
+            quantity=0,
+            alert_threshold=0,
+        )
+        db.session.add(item)
+
+    current_quantity = float(item.quantity or 0)
+    if operate == 1:
+        item.quantity = current_quantity + amount
+    else:
+        if current_quantity < amount:
+            raise ValueError("insufficient stock")
+        item.quantity = current_quantity - amount
+
+    item.count = format_inventory_count(float(item.quantity or 0), item.unit)
+    item.updated_at = datetime.now()
+    return item
+
+
 def get_admin_token_from_request():
     token = request.headers.get("X-Admin-Token")
     if token:
@@ -204,6 +273,34 @@ def require_admin(func):
         return func(*args, **kwargs)
 
     return wrapper
+
+
+def ensure_legacy_schema():
+    """Keep old SQLite databases compatible after adding ledger columns."""
+    inspector = inspect(db.engine)
+    if not inspector.has_table("ledger_inventory"):
+        return
+
+    columns = {column["name"] for column in inspector.get_columns("ledger_inventory")}
+    migrations = {
+        "unit": "ALTER TABLE ledger_inventory ADD COLUMN unit VARCHAR(10)",
+        "quantity": "ALTER TABLE ledger_inventory ADD COLUMN quantity FLOAT DEFAULT 0",
+        "alert_threshold": "ALTER TABLE ledger_inventory ADD COLUMN alert_threshold FLOAT DEFAULT 0",
+        "updated_at": "ALTER TABLE ledger_inventory ADD COLUMN updated_at DATETIME",
+    }
+    for column, sql in migrations.items():
+        if column not in columns:
+            db.session.execute(text(sql))
+    db.session.commit()
+
+
+@app.route("/api/health", methods=["GET"])
+def health_check():
+    return jsonify({
+        "status": "success",
+        "message": "backend running",
+        "database": DB_PATH,
+    })
 
 
 @app.route("/api/init_db", methods=["GET"])
@@ -599,30 +696,19 @@ def admin_bank():
         item_name = (data.get("item") or "").strip()
         remark = (data.get("remark") or "").strip()
 
-        if operate not in (1, 2) or num <= 0 or not item_name:
-            return jsonify({"status": "error", "message": "invalid params"}), 400
-
-        item = LedgerInventory.query.filter_by(name=item_name).first()
-        if not item:
-            item = LedgerInventory(
-                name=item_name,
-                count="0",
-                unit="",
-                quantity=0,
-                alert_threshold=0,
+        try:
+            item = adjust_inventory(
+                item_name=item_name,
+                amount=num,
+                operate=operate,
+                unit=data.get("unit", ""),
+                remark=remark,
             )
-            db.session.add(item)
+        except ValueError as exc:
+            message = str(exc)
+            status = 400 if message == "insufficient stock" else 400
+            return jsonify({"status": "error", "message": message}), status
 
-        current_quantity = float(item.quantity or 0)
-        if operate == 1:
-            item.quantity = current_quantity + num
-        else:
-            if current_quantity < num:
-                return jsonify({"status": "error", "message": "insufficient stock"}), 400
-            item.quantity = current_quantity - num
-
-        item.count = format_inventory_count(float(item.quantity or 0), item.unit)
-        item.updated_at = datetime.now()
         db.session.commit()
 
         return jsonify({
@@ -653,25 +739,13 @@ def admin_bank():
         return jsonify({"status": "error", "message": "invoice image required"}), 400
 
     trans_type = "income" if record_type == 1 else "expense"
-    transaction = LedgerTransaction(
+    transaction, fund = create_ledger_transaction(
         desc=remark,
         amount=amount,
-        type=trans_type,
+        trans_type=trans_type,
         invoice_url=invoice_url,
         user_id=user_id,
     )
-    db.session.add(transaction)
-
-    fund = LedgerFund.query.first()
-    if not fund:
-        fund = LedgerFund(total_balance=0)
-        db.session.add(fund)
-
-    if trans_type == "income":
-        fund.total_balance = float(fund.total_balance or 0) + amount
-    else:
-        fund.total_balance = float(fund.total_balance or 0) - amount
-    fund.updated_at = datetime.now()
 
     db.session.commit()
     return jsonify({
@@ -679,6 +753,85 @@ def admin_bank():
         "data": transaction.to_dict(),
         "total_balance": str(fund.total_balance),
     })
+
+
+@app.route("/api/admin/ledger/transactions", methods=["POST"])
+@require_admin
+def admin_add_ledger_transaction():
+    if request.is_json:
+        data = request.get_json(silent=True) or {}
+        desc = (data.get("desc") or data.get("remark") or "").strip()
+        invoice_url = data.get("invoice_url") or data.get("invoiceUrl") or ""
+        user_id = data.get("user_id")
+        try:
+            amount = get_required_float(data, "amount")
+        except (TypeError, ValueError):
+            return jsonify({"status": "error", "message": "invalid amount"}), 400
+        trans_type = data.get("type")
+    else:
+        form = request.form
+        desc = (form.get("desc") or form.get("remark") or "").strip()
+        user_id = form.get("user_id")
+        try:
+            amount = get_required_float(form, "amount")
+        except (TypeError, ValueError):
+            return jsonify({"status": "error", "message": "invalid amount"}), 400
+
+        raw_type = form.get("type")
+        if raw_type in ("1", 1):
+            trans_type = "income"
+        elif raw_type in ("2", 2):
+            trans_type = "expense"
+        else:
+            trans_type = raw_type
+        invoice_url = save_uploaded_image("image", "file")
+
+    if amount <= 0 or trans_type not in ("income", "expense") or not desc:
+        return jsonify({"status": "error", "message": "invalid params"}), 400
+    if not invoice_url:
+        return jsonify({"status": "error", "message": "invoice image required"}), 400
+
+    try:
+        user_id = int(user_id) if user_id not in (None, "") else None
+    except (TypeError, ValueError):
+        user_id = None
+
+    transaction, fund = create_ledger_transaction(
+        desc=desc,
+        amount=amount,
+        trans_type=trans_type,
+        invoice_url=invoice_url,
+        user_id=user_id,
+    )
+    db.session.commit()
+
+    return jsonify({
+        "status": "success",
+        "data": transaction.to_dict(),
+        "total_balance": str(fund.total_balance),
+    })
+
+
+@app.route("/api/admin/ledger/inventory/adjust", methods=["POST"])
+@require_admin
+def admin_adjust_ledger_inventory():
+    data = request.get_json(silent=True) or {}
+    try:
+        operate = get_required_int(data, "operate")
+        amount = get_required_float(data, "num")
+        item = adjust_inventory(
+            item_name=data.get("item") or data.get("name"),
+            amount=amount,
+            operate=operate,
+            unit=data.get("unit", ""),
+            remark=data.get("remark", ""),
+        )
+    except (TypeError, ValueError) as exc:
+        message = str(exc) if str(exc) else "invalid params"
+        return jsonify({"status": "error", "message": message}), 400
+
+    db.session.commit()
+    return jsonify({"status": "success", "data": item.to_dict()})
 
 
 # 用户端
@@ -730,6 +883,7 @@ def ledger_transactions():
 
 
 @app.route("/api/ledger/transactions", methods=["POST"])
+@require_admin
 def add_ledger_transaction():
     # 新增收入/支出记录，并更新总余额
     data = request.json
@@ -779,6 +933,7 @@ def add_ledger_transaction():
 
 
 @app.route("/api/ledger/inventory", methods=["POST"])
+@require_admin
 def add_ledger_inventory():
     # 新增物资
     data = request.json
@@ -800,6 +955,7 @@ def add_ledger_inventory():
 
 
 @app.route("/api/ledger/inventory/<int:item_id>", methods=["PUT"])
+@require_admin
 def update_ledger_inventory(item_id):
     # 更新库存
     item = LedgerInventory.query.get_or_404(item_id)
@@ -820,6 +976,7 @@ def update_ledger_inventory(item_id):
 
 
 @app.route("/api/ledger/inventory/<int:item_id>", methods=["DELETE"])
+@require_admin
 def delete_ledger_inventory(item_id):
     # 删除物资
     item = LedgerInventory.query.get_or_404(item_id)
@@ -831,6 +988,7 @@ def delete_ledger_inventory(item_id):
 # 凭证图片上传
 
 @app.route("/api/ledger/upload_invoice", methods=["POST"])
+@require_admin
 def upload_invoice():
     uploaded_url = save_uploaded_image("file")
     if not uploaded_url:
@@ -840,6 +998,7 @@ def upload_invoice():
 
 with app.app_context():
     db.create_all()
+    ensure_legacy_schema()
 
 
 if __name__ == "__main__":

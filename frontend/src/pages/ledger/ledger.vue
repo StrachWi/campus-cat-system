@@ -1,151 +1,296 @@
 <template>
-  <view class="ledger-container">
-    <view class="header">
-      <text class="title">阳光账本</text>
-    </view>
-
-    <view class="section balance-section">
-      <text class="balance-title">救助基金总余额</text>
-      <view class="balance-amount">
-        <text class="currency">¥</text>
-        <text class="number">{{ totalBalance }}</text>
-      </view>
+  <view class="ledger-page">
+    <view class="summary-card">
+      <text class="summary-label">校园动物救助基金余额</text>
+      <text class="summary-amount">￥{{ formatMoney(totalBalance) }}</text>
+      <text class="summary-tip">公开展示最近账目和物资库存</text>
     </view>
 
     <view class="section">
-      <text class="section-title">📦 物资库存</text>
-      <view class="grid-box">
-        <view class="grid-item" v-for="(item, index) in inventoryList" :key="index" :class="{'alert-item': item.isAlert}">
-          <text class="item-name">{{ item.name }}</text>
-          <text class="item-count">剩余: {{ item.count }}</text>
-          <text class="alert-tag" v-if="item.isAlert">急需捐赠</text>
+      <view class="section-head">
+        <text class="section-title">财务流水</text>
+        <text class="section-meta">最近 {{ ledgerList.length }} 条</text>
+      </view>
+
+      <view v-if="ledgerList.length === 0" class="empty-state">
+        <text>暂无账目记录</text>
+      </view>
+      <view
+        v-for="record in ledgerList"
+        :key="record.id"
+        class="record-card"
+        @click="previewInvoice(record.invoiceUrl)"
+      >
+        <view class="record-main">
+          <text class="record-desc">{{ record.desc }}</text>
+          <text class="record-date">{{ record.date }}</text>
+        </view>
+        <view class="record-side">
+          <text :class="['record-amount', record.type === 'income' ? 'income' : 'expense']">
+            {{ record.type === 'income' ? '+' : '-' }}￥{{ formatMoney(record.amount) }}
+          </text>
+          <text class="voucher-text">{{ record.invoiceUrl ? '查看凭证' : '无凭证' }}</text>
         </view>
       </view>
     </view>
 
     <view class="section">
-      <text class="section-title">💰 账目明细</text>
-      <view class="bill-list">
-        <view class="bill-item" v-for="(bill, index) in billList" :key="index" @click="previewInvoice(bill.invoiceUrl)">
-          <view class="bill-left">
-            <text class="bill-desc">{{ bill.desc }}</text>
-            <text class="bill-date">{{ bill.date }}</text>
+      <view class="section-head">
+        <text class="section-title">物资库存</text>
+        <text class="section-meta">{{ inventoryList.length }} 项</text>
+      </view>
+
+      <view v-if="inventoryList.length === 0" class="empty-state">
+        <text>暂无库存记录</text>
+      </view>
+      <view class="inventory-grid">
+        <view
+          v-for="item in inventoryList"
+          :key="item.id"
+          :class="['inventory-card', item.isAlert ? 'inventory-alert' : '']"
+        >
+          <view class="inventory-top">
+            <text class="inventory-name">{{ item.name }}</text>
+            <text v-if="item.isAlert" class="alert-tag">需补充</text>
           </view>
-          <view class="bill-right">
-            <text class="bill-amount" :class="bill.type === 'income' ? 'green' : 'red'">
-              {{ bill.type === 'income' ? '+' : '-' }} {{ bill.amount }}元
-            </text>
-            <text class="arrow-icon">></text>
-          </view>
+          <text class="inventory-count">{{ item.count }}</text>
         </view>
       </view>
     </view>
-
   </view>
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref } from 'vue';
+import { onShow, onPullDownRefresh } from '@dcloudio/uni-app';
+import { config } from '@/config.js';
 
-const totalBalance = ref('1,250.00')
+const totalBalance = ref(0);
+const ledgerList = ref([]);
+const inventoryList = ref([]);
 
-const inventoryList = ref([
-{ name: '幼猫猫粮', count: '5kg', isAlert: false },
-  { name: '成猫猫粮', count: '0.5kg', isAlert: true },  // 告警：主粮不足
-  { name: '驱虫药', count: '12支', isAlert: false },
-  { name: '豆腐猫砂', count: '1袋', isAlert: true },   // 告警：高频消耗品快没了
-  { name: '鸡肉主食罐', count: '35罐', isAlert: false },
-  { name: '营养猫条', count: '120支', isAlert: false },
-  { name: '诱捕笼', count: '2个', isAlert: false },      // 工具类展示
-  { name: '外伤碘伏', count: '半瓶', isAlert: true }     // 告警：急救药品不足
-])
+const formatMoney = (value) => {
+  const numberValue = Number(value || 0);
+  return numberValue.toFixed(2);
+};
 
-const billList = ref([
-  { 
-    desc: '购买成猫猫粮', 
-    date: '2023-10-25', 
-    amount: 150, 
-    type: 'expense',
-    invoiceUrl: 'https://via.placeholder.com/600x800/ffdddd/ff4d4f.png?text=Invoice+Example' // 模拟网图
-  },
-  { 
-    desc: '张同学爱心捐赠', 
-    date: '2023-10-24', 
-    amount: 50, 
-    type: 'income',
-    invoiceUrl: 'https://via.placeholder.com/600x800/ddffdd/52c41a.png?text=Donation+Record' // 模拟网图
-  }
-])
+const formatAssetUrl = (url) => {
+  if (!url) return '';
+  if (url.startsWith('http')) return url;
+  const publicUrl = url.replace('/api/uploads/', '/static/uploads/');
+  const prefix = publicUrl.startsWith('/') ? '' : '/';
+  return `${config.baseUrl}${prefix}${publicUrl}`;
+};
 
 const previewInvoice = (url) => {
-  if (!url) {
-    uni.showToast({ title: '这条记录暂无凭证', icon: 'none' })
-    return
+  const imageUrl = formatAssetUrl(url);
+  if (!imageUrl) {
+    uni.showToast({ title: '这条记录暂无凭证', icon: 'none' });
+    return;
   }
-  
   uni.previewImage({
-    urls: [url],     
-    current: url     
-  })
-}
+    urls: [imageUrl],
+    current: imageUrl,
+  });
+};
+
+const fetchLedgerOverview = () => {
+  uni.request({
+    url: `${config.baseUrl}/api/ledger/overview`,
+    method: 'GET',
+    success: (res) => {
+      if (res.data?.status !== 'success') {
+        uni.showToast({ title: '账本加载失败', icon: 'none' });
+        return;
+      }
+
+      const data = res.data.data || {};
+      totalBalance.value = data.total_balance || 0;
+      ledgerList.value = data.recent_transactions || [];
+      inventoryList.value = data.inventory || [];
+    },
+    fail: () => {
+      uni.showToast({ title: '无法连接账本接口', icon: 'none' });
+    },
+    complete: () => {
+      uni.stopPullDownRefresh();
+    },
+  });
+};
+
+onShow(fetchLedgerOverview);
+onPullDownRefresh(fetchLedgerOverview);
 </script>
 
 <style scoped>
-.ledger-container { background-color: #f5f5f5; min-height: 100vh; padding: 20px; padding-bottom: 40px; }
-.header { text-align: center; margin-bottom: 20px; }
-.title { font-size: 24px; font-weight: bold; color: #333; }
-.section { background: #fff; border-radius: 12px; padding: 18px; margin-bottom: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.03); }
-.section-title { font-size: 17px; font-weight: bold; border-bottom: 1px solid #f0f0f0; padding-bottom: 12px; display: block; margin-bottom: 15px; color: #333;}
-
-.balance-section { 
-  text-align: center; 
-  background: linear-gradient(135deg, #ff9a44 0%, #fc6076 100%); 
-  color: white; 
-  padding: 25px 15px; 
+.ledger-page {
+  min-height: 100vh;
+  background: #f5f7fa;
+  padding: 18px;
+  box-sizing: border-box;
 }
-.balance-title { font-size: 14px; opacity: 0.9; margin-bottom: 8px; display: block; }
-.balance-amount { display: flex; justify-content: center; align-items: baseline; }
-.currency { font-size: 22px; margin-right: 4px; }
-.number { font-size: 40px; font-weight: bold; font-family: 'Avenir', Helvetica, sans-serif;}
 
-.grid-box { 
-  display: grid; 
-  grid-template-columns: repeat(2, 1fr); /* 强制分成均等的两列 */
-  gap: 12px; 
+.summary-card {
+  background: #ffffff;
+  border-radius: 14px;
+  padding: 22px 18px;
+  box-shadow: 0 8px 24px rgba(45, 55, 72, 0.08);
+  border-left: 5px solid #ff9f43;
+  display: flex;
+  flex-direction: column;
 }
-.grid-item { 
-  background: #f9f9f9; 
-  padding: 16px 10px; 
-  border-radius: 8px; 
-  text-align: center; 
-  display: flex; 
-  flex-direction: column; 
-  justify-content: center;
+
+.summary-label {
+  color: #666;
+  font-size: 14px;
+}
+
+.summary-amount {
+  margin-top: 8px;
+  color: #222;
+  font-size: 34px;
+  font-weight: 700;
+  line-height: 42px;
+}
+
+.summary-tip {
+  margin-top: 8px;
+  color: #999;
+  font-size: 12px;
+}
+
+.section {
+  margin-top: 18px;
+}
+
+.section-head {
+  display: flex;
   align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
 }
-.item-name { font-weight: bold; margin-bottom: 6px; font-size: 15px; color: #333; }
-.item-count { font-size: 13px; color: #666; }
-.alert-item { background: #fff1f0; border: 1px solid #ff4d4f; }
-.alert-tag { background: #ff4d4f; color: white; font-size: 11px; padding: 3px 8px; border-radius: 12px; margin-top: 8px; }
 
-.bill-item { 
-  display: flex; 
-  justify-content: space-between; 
-  align-items: center; 
-  padding: 16px 0; 
-  border-bottom: 1px dashed #eee; 
-  transition: background-color 0.2s; 
+.section-title {
+  color: #222;
+  font-size: 18px;
+  font-weight: 700;
 }
-.bill-item:active { background-color: #f9f9f9; } /* 增加点击下去时的微小变色反馈 */
-.bill-item:last-child { border-bottom: none; padding-bottom: 0; }
 
-.bill-left { display: flex; flex-direction: column; flex: 1; }
-.bill-desc { font-size: 15px; color: #333; font-weight: 500;}
-.bill-date { font-size: 12px; color: #999; margin-top: 6px; }
+.section-meta {
+  color: #999;
+  font-size: 12px;
+}
 
-.bill-right { display: flex; align-items: center; }
-.bill-amount { font-size: 16px; margin-right: 10px; font-family: 'Avenir', Helvetica, sans-serif;}
-.green { color: #52c41a; font-weight: bold; }
-.red { color: #ff4d4f; font-weight: bold; }
-.arrow-icon { color: #ccc; font-size: 16px; font-family: monospace; }
+.empty-state {
+  background: #fff;
+  border-radius: 12px;
+  padding: 28px 0;
+  text-align: center;
+  color: #999;
+  font-size: 14px;
+}
+
+.record-card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 14px;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.03);
+}
+
+.record-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.record-desc {
+  color: #333;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.record-date {
+  margin-top: 6px;
+  color: #999;
+  font-size: 12px;
+}
+
+.record-side {
+  margin-left: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.record-amount {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.income {
+  color: #2fb344;
+}
+
+.expense {
+  color: #e03131;
+}
+
+.voucher-text {
+  margin-top: 6px;
+  color: #4facfe;
+  font-size: 12px;
+}
+
+.inventory-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.inventory-card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 14px;
+  border: 1px solid #edf0f5;
+}
+
+.inventory-alert {
+  border-color: #ffccc7;
+  background: #fff7f6;
+}
+
+.inventory-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.inventory-name {
+  color: #333;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.alert-tag {
+  flex-shrink: 0;
+  background: #ff4d4f;
+  color: #fff;
+  border-radius: 9px;
+  padding: 2px 7px;
+  font-size: 10px;
+}
+
+.inventory-count {
+  display: block;
+  margin-top: 12px;
+  color: #4facfe;
+  font-size: 20px;
+  font-weight: 700;
+}
 </style>

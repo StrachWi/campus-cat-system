@@ -32,7 +32,7 @@
           <text class="icon">🍱</text>
           <text>我认领的喂养时段</text>
         </view>
-        <text class="arrow">></text>
+        <text class="arrow">›</text>
       </view>
       
       <view class="menu-item" @click="isExpanded = !isExpanded">
@@ -40,8 +40,8 @@
           <text class="icon">📸</text>
           <text>我提报的猫咪档案</text>
         </view>
-		<span>点击展开/收起</span>
-		<span :class="{ 'icon-rotated': isExpanded }">▶</span>
+		<text class="fold-tip">点击展开/收起</text>
+		<text :class="['fold-icon', isExpanded ? 'icon-rotated' : '']">▶</text>
       </view>
 	  <div class="collapse-content" :class="{ 'is-expanded': isExpanded }">
 	    <div class="content-inner">
@@ -67,7 +67,7 @@
           <text class="icon">⚙️</text>
           <text>系统设置</text>
         </view>
-        <text class="arrow">></text>
+        <text class="arrow">›</text>
       </view>
     </view>
 
@@ -81,7 +81,7 @@
             <text class="admin-subtitle">查看并审核全校新提交的猫咪</text>
           </view>
         </view>
-        <text class="arrow admin-arrow">></text>
+        <text class="arrow admin-arrow">›</text>
       </view>
     </view>
 	
@@ -164,6 +164,10 @@ const showFeatureToast = () => {
 };
 
 const goToAdmin = () => {
+  if (!passwd.value) {
+    uni.showToast({ title: '请输入管理员密码', icon: 'none' });
+    return;
+  }
   verify.value=false;
   
   uni.request({
@@ -179,11 +183,16 @@ const goToAdmin = () => {
 			});
 		}else {
 			uni.showToast({
-			  title: '密码错误'
+			  title: '密码错误',
+        icon: 'none'
 			});
 			verify.value = true;
 		}
-	  }
+	  },
+    fail: () => {
+      uni.showToast({ title: '后端未启动或地址不通', icon: 'none' });
+      verify.value = true;
+    }
   })
   passwd.value = '';
 };
@@ -290,6 +299,8 @@ const goToAdmin = () => {
   color: #ccc;
   font-weight: bold;
 }
+.fold-tip { color: #666; font-size: 13px; }
+.fold-icon { color: #333; margin-left: 8px; transition: transform 0.3s; }
 
 /* 教师/管理员入口 */
 .admin-section {

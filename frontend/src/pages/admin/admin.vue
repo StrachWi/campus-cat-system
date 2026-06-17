@@ -187,6 +187,71 @@
           </view>
         </view>
       </view>
+
+      <!-- 用户管理 -->
+      <view v-show="currentTab === 'users'">
+        <view v-if="userList.length === 0" class="empty-state">
+          <text>暂无注册用户</text>
+        </view>
+        <view class="user-card" v-for="u in userList" :key="u.id" @click="toggleUserExpand(u.id)">
+          <view class="user-card-header">
+            <image v-if="u.avatar_url" class="user-card-avatar" :src="formatImageUrl(u.avatar_url)" mode="aspectFill"></image>
+            <view v-else class="user-card-avatar-placeholder">{{ u.username?.[0] || '?' }}</view>
+            <view class="user-card-info">
+              <text class="user-card-name">{{ u.nickname || u.username }}</text>
+              <text class="user-card-meta">@{{ u.username }} | Lv.{{ u.level }} | {{ u.created_at }}</text>
+            </view>
+            <text :class="['user-expand-icon', expandedUsers.includes(u.id) ? 'expanded' : '']">▼</text>
+          </view>
+          <view v-if="expandedUsers.includes(u.id)" class="user-detail">
+            <view class="user-detail-row">
+              <text class="detail-label">用户ID</text><text class="detail-val">{{ u.id }}</text>
+            </view>
+            <view class="user-detail-row">
+              <text class="detail-label">密码(哈希)</text><text class="detail-val hash">{{ u.password_hash }}</text>
+            </view>
+            <view class="user-detail-row">
+              <text class="detail-label">注册时间</text><text class="detail-val">{{ u.created_at }}</text>
+            </view>
+            <view class="user-detail-row">
+              <text class="detail-label">经验/等级</text>
+              <text class="detail-val" :style="{ color: u.level_color || '#555' }">{{ u.experience }} exp / Lv.{{ u.level }}</text>
+            </view>
+            <view class="user-detail-row">
+              <text class="detail-label">身份</text><text class="detail-val">{{ u.is_admin ? '管理员' : '普通用户' }}</text>
+            </view>
+
+            <text class="detail-section-title">📋 历史上报 ({{ u.report_count }}条)</text>
+            <view v-if="u.reported_cats.length === 0" class="empty-tip-sm">无上报记录</view>
+            <view v-else class="detail-item-list">
+              <view class="detail-item-row" v-for="rc in u.reported_cats" :key="rc.cat_id">
+                <text>{{ rc.cat_name }}</text>
+                <text :class="['audit-tag-sm', rc.audit_status === 'published' ? 'audit-pass' : 'audit-pending']">
+                  {{ rc.audit_status === 'published' ? '已发布' : '待审核' }}
+                </text>
+              </view>
+            </view>
+
+            <text class="detail-section-title">🍱 近期投喂 ({{ u.feed_count }}条, 显示近5条)</text>
+            <view v-if="u.feeding_records.length === 0" class="empty-tip-sm">无投喂记录</view>
+            <view v-else class="detail-item-list">
+              <view class="detail-item-row" v-for="fr in u.feeding_records" :key="fr.id">
+                <text>🐱猫{{ fr.cat_id }} | {{ fr.food }}{{ fr.water === '是' ? '+水' : '' }}</text>
+                <text class="detail-date">{{ fr.created_at?.slice(0, 10) }}</text>
+              </view>
+            </view>
+
+            <text class="detail-section-title">💰 捐赠记录 ({{ u.donation_count }}条, 显示近5条)</text>
+            <view v-if="u.donations.length === 0" class="empty-tip-sm">无捐赠记录</view>
+            <view v-else class="detail-item-list">
+              <view class="detail-item-row" v-for="dn in u.donations" :key="dn.id">
+                <text>{{ dn.desc }}</text>
+                <text :class="dn.type === 'income' ? 'green' : 'red'">￥{{ dn.amount }}</text>
+              </view>
+            </view>
+          </view>
+        </view>
+      </view>
     </view>
 
     <view class="modal-mask" v-if="showEditModal">
@@ -272,6 +337,7 @@ const tabs = [
   { key: 'published', label: '已发布' },
   { key: 'goods', label: '物资管理' },
   { key: 'bank', label: '账目管理' },
+  { key: 'users', label: '用户' },
 ];
 
 const currentTab = ref('pending');
@@ -291,6 +357,27 @@ const detailCat = ref({});
 const miaoguanCats = ref([]);
 const adminUserId = ref('');
 const mealNameMap2 = { morning: '早餐', noon: '午餐', evening: '晚餐' };
+
+// ---- 用户管理 ----
+const userList = ref([]);
+const expandedUsers = ref([]);
+
+const fetchUserList = async () => {
+  const res = await request({
+    url: `${config.baseUrl}/api/admin/users`,
+    method: 'GET',
+    header: authHeader(),
+  });
+  if (res.data?.status === 'success') {
+    userList.value = res.data.data || [];
+  }
+};
+
+const toggleUserExpand = (uid) => {
+  const idx = expandedUsers.value.indexOf(uid);
+  if (idx > -1) expandedUsers.value.splice(idx, 1);
+  else expandedUsers.value.push(uid);
+};
 
 const goodsForm = reactive({
   operate: 1,
@@ -624,6 +711,7 @@ onShow(() => {
   adminUserId.value = String(uni.getStorageSync('real_user_id') || 'admin');
   refreshAll();
   fetchMiaoguanCats();
+  fetchUserList();
 });
 </script>
 
@@ -654,7 +742,7 @@ onShow(() => {
 
 .tabs-container {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(6, 1fr);
   background: #fff;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
 }
@@ -1090,4 +1178,101 @@ onShow(() => {
   line-height: 24px;
 }
 .admin-meal-taken { font-size: 11px; color: #999; }
+
+/* ===== 用户管理 ===== */
+.user-card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 14px;
+  margin-bottom: 10px;
+  box-shadow: 0 3px 10px rgba(0,0,0,0.04);
+}
+.user-card-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.user-card-avatar {
+  width: 44px; height: 44px;
+  border-radius: 50%;
+  background: #eee;
+}
+.user-card-avatar-placeholder {
+  width: 44px; height: 44px;
+  border-radius: 50%;
+  background: #ffb74d;
+  color: #fff;
+  font-size: 18px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.user-card-info {
+  flex: 1;
+  min-width: 0;
+}
+.user-card-name {
+  display: block;
+  font-size: 15px;
+  font-weight: 700;
+  color: #222;
+}
+.user-card-meta {
+  display: block;
+  font-size: 11px;
+  color: #999;
+  margin-top: 3px;
+}
+.user-expand-icon {
+  font-size: 12px;
+  color: #999;
+  transition: transform 0.3s;
+}
+.user-expand-icon.expanded {
+  transform: rotate(180deg);
+}
+.user-detail {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid #f0f0f0;
+}
+.user-detail-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 0;
+  font-size: 13px;
+}
+.detail-label { color: #999; }
+.detail-val { color: #333; font-weight: 600; max-width: 60%; word-break: break-all; }
+.detail-val.hash { font-size: 10px; color: #aaa; }
+.detail-section-title {
+  display: block;
+  font-size: 13px;
+  font-weight: 700;
+  color: #555;
+  margin-top: 14px;
+  margin-bottom: 6px;
+}
+.empty-tip-sm { text-align: center; color: #ccc; font-size: 12px; padding: 10px 0; }
+.detail-item-list {
+  background: #f9f9f9;
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.detail-item-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 5px 0;
+  font-size: 12px;
+  color: #555;
+}
+.detail-item-row + .detail-item-row {
+  border-top: 1px solid #eee;
+}
+.detail-date { font-size: 11px; color: #aaa; }
+.audit-tag-sm { font-size: 10px; padding: 2px 6px; border-radius: 4px; }
+.audit-pass { background: #e8f5e9; color: #4caf50; }
+.audit-pending { background: #fff3e0; color: #ff9800; }
 </style>

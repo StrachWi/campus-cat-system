@@ -263,10 +263,10 @@ const userNickname = ref('热心校园铲屎官');
 const userLevel = ref(1);
 const userExp = ref(0);
 const levelProgress = ref(0);
-const levelColor = ref('#fff');
+const levelColor = ref('#555');
 const nextThreshold = ref(50);
 const thresholds = ref([0, 50, 100, 200, 350, 850]);
-const colors = ref(['#fff', '#4caf50', '#2196f3', '#9c27b0', '#f44336', '#ffd700']);
+const colors = ref(['#555', '#4caf50', '#2196f3', '#9c27b0', '#f44336', '#ffd700']);
 const showRules = ref(false);
 
 // ---- 弹窗 ----
@@ -342,10 +342,10 @@ const fetchExperience = () => {
         userLevel.value = d.level || 1;
         userExp.value = d.experience || 0;
         levelProgress.value = d.progress || 0;
-        levelColor.value = d.level_color || '#fff';
+        levelColor.value = d.level_color || '#555';
         nextThreshold.value = d.next_threshold || 50;
         thresholds.value = d.thresholds || [0, 50, 100, 200, 350, 850];
-        colors.value = d.colors || ['#fff', '#4caf50', '#2196f3', '#9c27b0', '#f44336', '#ffd700'];
+        colors.value = d.colors || ['#555', '#4caf50', '#2196f3', '#9c27b0', '#f44336', '#ffd700'];
       }
     },
   });

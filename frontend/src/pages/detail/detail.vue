@@ -34,11 +34,13 @@
         <view class="meal-item" v-for="meal in ['morning', 'noon', 'evening']" :key="meal">
           <view class="meal-info" >
             <text class="meal-name">{{ mealNameMap[meal] }}</text>
-            <text v-if="!catInfo.feed_status[meal] && trans2(meal)>=trans2(nowmeal)" class="meal-status status-pending">⌛ 待认领</text>
+            <text v-if=" trans2(meal)<trans2(nowmeal)&&!catInfo.feed_status[meal]" class="meal-status status-timeout">！已超时</text>
+			<text v-else-if="!catInfo.feed_status[meal]" class="meal-status status-pending">⌛ 待认领</text>
             <text v-else-if="catInfo.feed_status[meal] === myUserId" class="meal-status status-mine">✅ 我已认领</text>
             <text v-else class="meal-status status-others">🔒 已被其他爱心人士认领</text>
           </view>
-          <button v-if="!catInfo.feed_status[meal]&&trans2(meal)>=trans2(nowmeal)" class="action-btn claim-btn" @click="handleFeedAction(meal, 'claim')">认领</button>
+		  <button v-if="trans2(meal)<trans2(nowmeal)&&!catInfo.feed_status[meal]" class="action-btn timeout-btn" disabled>已超时</button>
+          <button v-else-if="!catInfo.feed_status[meal]" class="action-btn claim-btn" @click="handleFeedAction(meal, 'claim')">认领</button>
           <button v-else-if="catInfo.feed_status[meal] === myUserId" class="action-btn cancel-btn" @click="handleFeedAction(meal, 'cancel')">取消</button>
           <button v-else class="action-btn disabled-btn" disabled>已被认领</button>
         </view>
@@ -46,8 +48,14 @@
     </view>
 	
 	<view class="meal-plan">
-		<view class="meal-item" v-for="feed in feedlist" :key = "feed">
-			<text>{{feed.username}}在{{mealNameMap[trans(feed.time)]}}投喂了{{feed.food}}</text>
+		<view class="feed-item" v-for="feed in feedlist" :key = "feed">
+			<text class="feed-time">{{formdate(feed.created_at)}}:</text>
+			<text class="feed-name"> {{feed.username}} </text> 
+			<text class="feed-def"> 在 </text>
+			<text class="feed-meal">{{mealNameMap[trans(feed.time)]}}</text>
+			<text class="feed-def">  投喂了 </text>
+			<text class="feed-food"> {{feed.food}}</text>
+			<text v-if="feed.water==='是'">和水</text>
 		</view>
 	</view>
 	
@@ -68,12 +76,13 @@
       <view class="dialog">
         <h3>喂养提报</h3>
         <form @submit.prevent="handleSubmit()">
-          <label>食物:{{food}}</label>
+          <label>食物:</label>
+		  <input v-model="food" placeholder="输入食物或在下方选择" class="input-box" />
 		  <picker :value="foodtype" :range="foodlist" @change="onfoodch">
 			  <view class="picktype"> {{ foodlist[foodtype] }} </view>
 		  </picker>
 		  <label>是否喂水:
-		  <button type="button" :class=" ['check', checkbut ? 'ch-yes' : 'ch-no'] " @click="checkbut=!checkbut">是</button></label>
+		  <button type="button" :class=" ['check', checkbut ? 'ch-yes' : 'ch-no'] " @click="checkbut=!checkbut">{{checkbut ? '是' : '否'}}</button></label>
           <view class="actions">
             <button type="submit" @click="handleSubmit()">提交</button>
             <button type="button" @click="closeDialog()">取消</button>
@@ -98,7 +107,7 @@ const nowmeal = ref('morning');
 
 const checkbut = ref(false);
 const isDialogVisible = ref(false);
-const food = ref('猫条');
+const food = ref('');
 const water = ref('');
 const foodtype = ref(0);
 const foodlist = ref([ '猫粮', '猫条', '零食']);
@@ -112,7 +121,6 @@ const checkwater = ()=>{
 const toggleDialog = () => { isDialogVisible.value = true; };
 const closeDialog = () => {
   isDialogVisible.value = false;
-  // 重置表单数据
   food.value = '';
   water.value = '';
 };
@@ -129,16 +137,40 @@ const trans2 = (ti) =>{
 	else return 3;
 };
 
+const formdate = (isoDate)=>{
+	const date = new Date(isoDate);
+	const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0'); // 月份从0开始，需加1并补零
+    const day = String(date.getDate()).padStart(2, '0');
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    const seconds = String(date.getSeconds()).padStart(2, '0');
+      
+    return `${year}-${month}-${day}`;
+};
+
 const handleSubmit = () => {
+	if(!food.value){
+		uni.showToast({
+			title:'食物不能为空',icon:'error'
+		});
+		return ;
+	}
+	if(checkbut.value){
+		water.value = '是';
+	}else {
+		water.value = '否';
+	}
 	uni.showModal({
 		title:'上传猫咪喂养信息' , content:'确定要上传喂养记录吗？',
 		success:(res)=>{
 			if(res.confirm)
 			  uni.request({
-			  	url:`${config.baseUrl}/api/cats/feeding` , method:'POST',data:{user_id:myUserId.value , cat_id:catId.value, time:trans2(nowmeal) , food:food.value,water:water.value},
+			  	url:`${config.baseUrl}/api/cats/feeding` , method:'POST',data:{user_id:myUserId.value , cat_id:catId.value, time:trans2(nowmeal.value) , food:food.value,water:water.value},
 				success: (res) => {
 					if(res.data.status === 'success'){
 						feedlist.value.push(res.data.data);
+						feedlist.value.sort((b,a)=>new Date(a.created_at) - new Date(b.created_at));
 						uni.showToast({
 						title:'提交成功'
 						})
@@ -150,7 +182,6 @@ const handleSubmit = () => {
 			  });
 		 }
 	});
-	//fetchrecord();
   isDialogVisible.value=false;
 };
 
@@ -247,6 +278,9 @@ const fetchrecord=() =>{
 		success:(res) =>{
 			if(res.data.status == 'success') {
 				feedlist.value = res.data.data;
+				const now = new Date();
+				const oneDaysAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+				feedlist.value = feedlist.value.filter(item => new Date(item.created_at) >= oneDaysAgo);
 			}
 		}
 	});
@@ -322,16 +356,18 @@ const handleFeedAction = (meal, action) => {
 .status-pending { color: #909399; }
 .status-mine { color: #67c23a; font-weight: bold;}
 .status-others { color: #999; }
+.status-timeout{color: #ff0000;}
 
 .action-btn { margin: 2px; font-size: 13px; border-radius: 20px; padding: 0 20px; height: 32px; line-height: 32px;}
 .claim-btn { background-color: #ff8c00; color: #fff; }
 .cancel-btn { background-color: #fff; color: #ff8c00; border: 1px solid #ff8c00; }
 .disabled-btn { background-color: #f5f5f5; color: #ccc; }
+.timeout-btn{background-color: #ff0000; color: #ff0000;}
 .float-bottom-btn {position:fixed; width: 100% ;display: flex; justify-content: space-around;bottom: 0px; z-index: 99;background-color: #aaffff;padding: 2 2px;  }
 
 
-.picktype{background-color: #aaffff; padding: 0 12px; border-radius: 8px; font-size: 14px; color: #333; width: 25%;margin: 5px;}
-.input-box { background-color: #aaffff; font-size: 14px; color: #00ff00; padding: 8 8 px; border-style:inset; border-width:2px;}
+.picktype{background-color: #ff5500; padding: 0 12px; border-radius: 8px; font-size: 14px; color: #333; width: 25%;margin: 5px;}
+.input-box { background-color: #aaffff; font-size: 14px; color: #550000; padding: 8 8 px; border-style:inset; border-width:2px; width:90%;}
 .check {font-size: 12px; color: #000000; width: 20%;}
 .ch-yes{ background-color: #ff5500;}
 .ch-no{background-color: #eee;}
@@ -342,4 +378,11 @@ const handleFeedAction = (meal, action) => {
 }
 .dialog { background: #fff; padding: 20px; border-radius: 8px; min-width: 300px; }
 .actions button { margin-right: 10px; margin-top: 10px; }
+
+.feed-item{padding: 10px;display: flex; justify-content: space-between; align-items: center; background-color: #ffffff; padding: 12px; border-radius: 12px; border: 1px solid #f5f5f5;}
+.feed-time{font-size: 13px;}
+.feed-name{font-size: 15px; color: #005500;}
+.feed-meal{font-size: 15px; color: #67c23a;}
+.feed-food{font-size: 15px; color: #550000;}
+.feed-def{font-size: 10px;}
 </style>

@@ -1,4 +1,5 @@
 import os
+from collections import defaultdict
 from functools import wraps
 from datetime import datetime
 from flask import Flask, jsonify, request
@@ -43,6 +44,25 @@ class User(db.Model):
     is_admin = db.Column(db.Boolean, default=False)
     avatar_url = db.Column(db.String(255), default="")
     nickname = db.Column(db.String(50), default="")
+    experience = db.Column(db.Integer, default=0)
+
+    LEVEL_THRESHOLDS = [0, 50, 100, 200, 350, 850]
+    LEVEL_COLORS = ["#fff", "#4caf50", "#2196f3", "#9c27b0", "#f44336", "#ffd700"]
+
+    def compute_level(self):
+        exp = self.experience or 0
+        lv = 1
+        for threshold in self.LEVEL_THRESHOLDS:
+            if exp >= threshold:
+                lv = self.LEVEL_THRESHOLDS.index(threshold) + 1
+        return min(lv, 6)
+
+    def add_experience(self, amount):
+        old_lv = self.compute_level()
+        self.experience = (self.experience or 0) + amount
+        new_lv = self.compute_level()
+        db.session.add(self)
+        return {"leveled_up": new_lv > old_lv, "new_level": new_lv}
 
 
 class Cat(db.Model):
@@ -73,6 +93,8 @@ class Cat(db.Model):
             "location": self.location,
             "character_desc": self.character_desc,
             "health_status": self.health_status,
+            "audit_status": self.audit_status,
+            "user_id": self.user_id,
             "feed_status": {
                 "morning": self.morning_claimer,
                 "noon": self.noon_claimer,
@@ -294,12 +316,13 @@ def ensure_legacy_schema():
             if column not in columns:
                 db.session.execute(text(sql))
 
-    # --- users 迁移：avatar_url / nickname ---
+    # --- users 迁移：avatar_url / nickname / experience ---
     if inspector.has_table("users"):
         user_cols = {col["name"] for col in inspector.get_columns("users")}
         user_migrations = {
             "avatar_url": "ALTER TABLE users ADD COLUMN avatar_url VARCHAR(255) DEFAULT ''",
             "nickname": "ALTER TABLE users ADD COLUMN nickname VARCHAR(50) DEFAULT ''",
+            "experience": "ALTER TABLE users ADD COLUMN experience INTEGER DEFAULT 0",
         }
         for col, sql in user_migrations.items():
             if col not in user_cols:
@@ -513,6 +536,7 @@ def feed_cat(cat_id):
         if current_claimer:
             return jsonify({"status": "error"}), 400
         setattr(cat, f"{meal}_claimer", user_id)
+        _maybe_add_exp(user_id, 10)  # 认领喂养 +10经验
     elif action == "cancel":
         if current_claimer != user_id:
             return jsonify({"status": "error"}), 403
@@ -613,16 +637,230 @@ def get_user_issued_cats():
         "data": [
             {
                 "cat_name": cat.name,
+                "cat_id": cat.id,
                 "time": 1,
                 "location": cat.location,
                 "desc": cat.character_desc,
                 "avatar_url": cat.avatar_url,
+                "audit_status": cat.audit_status,
             }
             for cat in cats
         ],
     })
 
-# ===================== 用户个人中心 API =====================
+# ===================== 喂养排班历史 API =====================
+
+@app.route("/api/cats/feeding/schedule", methods=["GET"])
+def get_feeding_schedule():
+    """历史喂养排班：按日期聚合，每日每猫一条，分页10条，倒序"""
+    page = request.args.get("page", 1, type=int)
+    limit = request.args.get("limit", 10, type=int)
+
+    cats = Cat.query.filter_by(audit_status="published").all()
+
+    # 收集所有喂养记录，按 (cat_id, date) 聚合
+    daily_map = defaultdict(lambda: {
+        "cat": None,
+        "date": "",
+        "morning_user": "",
+        "morning_username": "",
+        "noon_user": "",
+        "noon_username": "",
+        "evening_user": "",
+        "evening_username": "",
+    })
+
+    for cat in cats:
+        records = FeedingRecord.query.filter_by(cat_id=cat.id)\
+            .order_by(FeedingRecord.created_at.desc()).all()
+        # 按日期分组该猫的记录
+        cat_dates = defaultdict(list)
+        for r in records:
+            date_str = r.created_at.strftime("%Y-%m-%d") if r.created_at else "unknown"
+            cat_dates[date_str].append(r)
+
+        for date_str, recs in cat_dates.items():
+            key = (cat.id, date_str)
+            entry = daily_map[key]
+            entry["cat"] = cat
+            entry["date"] = date_str
+            for rec in recs:
+                user = User.query.get(rec.user_id)
+                uname = user.username if user else "unknown"
+                uid = str(rec.user_id) if rec.user_id else ""
+                if rec.time == 1:  # morning
+                    entry["morning_user"] = uid
+                    entry["morning_username"] = uname
+                elif rec.time == 2:  # noon
+                    entry["noon_user"] = uid
+                    entry["noon_username"] = uname
+                elif rec.time == 3:  # evening
+                    entry["evening_user"] = uid
+                    entry["evening_username"] = uname
+
+    # 也添加没有任何喂养记录的猫和日期
+    # 但至少要有认领记录才显示
+
+    # 转换为列表并按日期倒序排序
+    schedule_list = []
+    admin_id = str(ADMIN_TOKEN)  # admin token as identifier
+
+    for key, entry in daily_map.items():
+        cat = entry["cat"]
+        if not cat:
+            continue
+        # 确定每餐的认领者
+        ms = cat.morning_claimer or ""
+        ns = cat.noon_claimer or ""
+        es = cat.evening_claimer or ""
+
+        def claimer_info(claimer_id):
+            if not claimer_id:
+                return {"user_id": "", "username": "", "status": "none"}
+            user = User.query.get(int(claimer_id)) if claimer_id.isdigit() else None
+            is_admin_user = user and user.is_admin
+            return {
+                "user_id": claimer_id,
+                "username": user.username if user else claimer_id,
+                "status": "admin" if is_admin_user else "claimed",
+            }
+
+        schedule_list.append({
+            "cat_id": cat.id,
+            "cat_name": cat.name,
+            "cat_avatar": cat.avatar_url or "",
+            "date": entry["date"],
+            "morning": {
+                "feed_user": entry["morning_username"] or "",
+                "feed_user_id": entry["morning_user"] or "",
+                "claimer": claimer_info(ms),
+            },
+            "noon": {
+                "feed_user": entry["noon_username"] or "",
+                "feed_user_id": entry["noon_user"] or "",
+                "claimer": claimer_info(ns),
+            },
+            "evening": {
+                "feed_user": entry["evening_username"] or "",
+                "feed_user_id": entry["evening_user"] or "",
+                "claimer": claimer_info(es),
+            },
+        })
+
+    # 按日期倒序
+    schedule_list.sort(key=lambda x: x["date"], reverse=True)
+
+    total = len(schedule_list)
+    start = (page - 1) * limit
+    end = start + limit
+    page_data = schedule_list[start:end]
+
+    return jsonify({
+        "status": "success",
+        "data": page_data,
+        "pagination": {"page": page, "limit": limit, "total": total},
+    })
+
+
+# ===================== 用户认领历史 API =====================
+
+@app.route("/api/user/claims", methods=["GET"])
+def get_user_claims():
+    """获取用户历史上认领过的喂养记录"""
+    user_id = request.args.get("user_id", type=int)
+    if not user_id:
+        return jsonify({"status": "error", "message": "missing user_id"}), 400
+
+    user_id_str = str(user_id)
+    # 查找该用户认领过的猫（claimer字段匹配）
+    all_cats = Cat.query.filter_by(audit_status="published").all()
+    claimed_records = []
+
+    for cat in all_cats:
+        for meal_key, meal_name in [("morning", "早餐"), ("noon", "午餐"), ("evening", "晚餐")]:
+            claimer = getattr(cat, f"{meal_key}_claimer") or ""
+            if claimer == user_id_str or claimer == str(user_id):
+                # 查找该时段是否有实际喂养记录
+                time_map = {"morning": 1, "noon": 2, "evening": 3}
+                feed_rec = FeedingRecord.query.filter_by(
+                    cat_id=cat.id, user_id=user_id, time=time_map[meal_key]
+                ).order_by(FeedingRecord.created_at.desc()).first()
+
+                claimed_records.append({
+                    "cat_id": cat.id,
+                    "cat_name": cat.name,
+                    "cat_avatar": cat.avatar_url or "",
+                    "meal": meal_key,
+                    "meal_name": meal_name,
+                    "fed": feed_rec is not None,
+                    "food": feed_rec.food if feed_rec else "",
+                    "water": feed_rec.water if feed_rec else "",
+                    "feed_time": feed_rec.created_at.isoformat() if feed_rec and feed_rec.created_at else "",
+                })
+
+    # 按喂养时间倒序
+    claimed_records.sort(key=lambda x: x["feed_time"], reverse=True)
+
+    return jsonify({"status": "success", "data": claimed_records})
+
+
+# ===================== 用户经验/等级 API =====================
+
+@app.route("/api/user/experience", methods=["GET"])
+def get_user_experience():
+    """获取用户经验值和等级信息"""
+    user_id = request.args.get("user_id", type=int)
+    if not user_id:
+        return jsonify({"status": "error", "message": "missing user_id"}), 400
+
+    user = User.query.get_or_404(user_id)
+    level = user.compute_level()
+    exp = user.experience or 0
+
+    # 计算当前等级进度
+    thresholds = User.LEVEL_THRESHOLDS
+    if level >= 6:
+        current_threshold = thresholds[-1]
+        next_threshold = current_threshold
+        progress = 100
+    else:
+        current_threshold = thresholds[level - 1] if level > 0 else 0
+        next_threshold = thresholds[level] if level < 6 else thresholds[-1]
+        if next_threshold > current_threshold:
+            progress = int((exp - current_threshold) / (next_threshold - current_threshold) * 100)
+        else:
+            progress = 100
+
+    colors = User.LEVEL_COLORS
+
+    return jsonify({
+        "status": "success",
+        "data": {
+            "level": level,
+            "experience": exp,
+            "current_threshold": current_threshold,
+            "next_threshold": next_threshold,
+            "progress": progress,
+            "level_color": colors[level - 1] if 0 < level <= 6 else "#fff",
+            "thresholds": thresholds,
+            "colors": colors,
+        },
+    })
+
+
+# ===================== 经验值增加辅助 =====================
+
+def _maybe_add_exp(user_id, amount):
+    """给用户加经验值，如果 user_id 有效"""
+    if not user_id:
+        return None
+    try:
+        user = User.query.get(int(user_id))
+    except (ValueError, TypeError):
+        return None
+    if not user or user.is_admin:
+        return None
+    return user.add_experience(amount)
 
 @app.route("/api/user/profile", methods=["GET", "PUT"])
 def handle_user_profile():
@@ -761,6 +999,7 @@ def review_cat():
 
     if action == "pass":
         cat.audit_status = "published"
+        _maybe_add_exp(cat.user_id, 30)  # 审核通过 +30经验
     elif action == "reject":
         db.session.delete(cat)
 
@@ -834,6 +1073,9 @@ def admin_bank():
             message = str(exc)
             status = 400 if message == "insufficient stock" else 400
             return jsonify({"status": "error", "message": message}), status
+
+        if operate == 1:
+            _maybe_add_exp(user_id, 20)  # 捐献物资 +20经验
 
         db.session.commit()
 

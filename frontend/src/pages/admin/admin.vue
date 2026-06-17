@@ -41,6 +41,35 @@
         </view>
       </view>
 
+      <!-- 喵圈：管理员查看猫咪列表并认领喂养时段 -->
+      <view v-show="currentTab === 'miaoguan'">
+        <view v-if="miaoguanCats.length === 0" class="empty-state">
+          <text>暂无已发布猫咪</text>
+        </view>
+        <view class="review-card" v-for="cat in miaoguanCats" :key="cat.id">
+          <view class="cat-info-row" @click="openDetailModal(cat)">
+            <image class="cat-avatar" :src="formatImageUrl(cat.avatar_url)" mode="aspectFill"></image>
+            <view class="cat-details">
+              <text class="cat-name">{{ cat.name || '未命名猫咪' }}</text>
+              <text class="cat-desc">位置：{{ cat.location || '未填写' }}</text>
+              <text class="cat-desc">描述：{{ cat.character_desc || '未填写' }}</text>
+            </view>
+          </view>
+          <view class="feed-progress-box">
+            <text class="progress-title">今日喂养排班：</text>
+            <view class="admin-feed-row">
+              <view v-for="meal in ['morning','noon','evening']" :key="meal" :class="['admin-meal-block', getAdminMealClass(meal, cat)]">
+                <text class="admin-meal-name">{{ mealNameMap2[meal] }}</text>
+                <text class="admin-meal-status">{{ getAdminMealText(meal, cat) }}</text>
+                <button v-if="!cat.feed_status[meal]" class="admin-claim-btn" @click.stop="adminClaimMeal(cat.id, meal)">认领</button>
+                <button v-else-if="cat.feed_status[meal] === adminUserId" class="admin-cancel-btn" @click.stop="adminCancelMeal(cat.id, meal)">取消</button>
+                <text v-else class="admin-meal-taken">已认领</text>
+              </view>
+            </view>
+          </view>
+        </view>
+      </view>
+
       <view v-show="currentTab === 'published'">
         <view v-if="publishedCats.length === 0" class="empty-state">
           <text>暂无已发布猫咪</text>
@@ -239,6 +268,7 @@ import { config } from '@/config.js';
 
 const tabs = [
   { key: 'pending', label: '待审核' },
+  { key: 'miaoguan', label: '喵圈' },
   { key: 'published', label: '已发布' },
   { key: 'goods', label: '物资管理' },
   { key: 'bank', label: '账目管理' },
@@ -256,6 +286,11 @@ const showEditModal = ref(false);
 const editForm = ref({ id: '', name: '', location: '', character_desc: '' });
 const showDetailModal = ref(false);
 const detailCat = ref({});
+
+// ---- 喵圈 ----
+const miaoguanCats = ref([]);
+const adminUserId = ref('');
+const mealNameMap2 = { morning: '早餐', noon: '午餐', evening: '晚餐' };
 
 const goodsForm = reactive({
   operate: 1,
@@ -403,6 +438,61 @@ const openDetailModal = (cat) => {
   showDetailModal.value = true;
 };
 
+// ==================== 喵圈功能 ====================
+const fetchMiaoguanCats = async () => {
+  const res = await request({
+    url: `${config.baseUrl}/api/cats`,
+    method: 'GET',
+  });
+  if (res.data?.status === 'success') {
+    miaoguanCats.value = res.data.data || [];
+  }
+};
+
+const getAdminMealClass = (meal, cat) => {
+  const claimer = cat.feed_status?.[meal];
+  if (!claimer) return 'meal-open';
+  if (claimer === adminUserId.value) return 'meal-admin-claimed';
+  return 'meal-other';
+};
+
+const getAdminMealText = (meal, cat) => {
+  const claimer = cat.feed_status?.[meal];
+  if (!claimer) return '无人认领';
+  if (claimer === adminUserId.value) return '我已认领';
+  return claimer;
+};
+
+const adminClaimMeal = async (catId, meal) => {
+  const res = await request({
+    url: `${config.baseUrl}/api/cats/${catId}/feed`,
+    method: 'POST',
+    header: authHeader(),
+    data: { meal, action: 'claim', user_id: adminUserId.value },
+  });
+  if (res.data?.status === 'success') {
+    uni.showToast({ title: '认领成功', icon: 'success' });
+    await fetchMiaoguanCats();
+  } else {
+    showError('认领失败');
+  }
+};
+
+const adminCancelMeal = async (catId, meal) => {
+  const res = await request({
+    url: `${config.baseUrl}/api/cats/${catId}/feed`,
+    method: 'POST',
+    header: authHeader(),
+    data: { meal, action: 'cancel', user_id: adminUserId.value },
+  });
+  if (res.data?.status === 'success') {
+    uni.showToast({ title: '已取消', icon: 'success' });
+    await fetchMiaoguanCats();
+  } else {
+    showError('取消失败');
+  }
+};
+
 const submitEdit = async () => {
   const res = await request({
     url: `${config.baseUrl}/api/admin/update_cat`,
@@ -531,7 +621,9 @@ const previewInvoice = (url) => {
 onShow(() => {
   token.value = uni.getStorageSync('admin_token');
   userId.value = uni.getStorageSync('real_user_id') || '';
+  adminUserId.value = String(uni.getStorageSync('real_user_id') || 'admin');
   refreshAll();
+  fetchMiaoguanCats();
 });
 </script>
 
@@ -562,7 +654,7 @@ onShow(() => {
 
 .tabs-container {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   background: #fff;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
 }
@@ -946,4 +1038,56 @@ onShow(() => {
 
 .green { color: #2fb344; }
 .red { color: #e03131; }
+
+/* ===== 喵圈喂养排班 ===== */
+.feed-progress-box {
+  background: #fafafa;
+  padding: 10px;
+  border-radius: 8px;
+  margin-top: 10px;
+}
+.progress-title {
+  font-size: 12px;
+  color: #666;
+  margin-bottom: 8px;
+  display: block;
+}
+.admin-feed-row {
+  display: flex;
+  gap: 6px;
+}
+.admin-meal-block {
+  flex: 1;
+  text-align: center;
+  padding: 10px 4px;
+  border-radius: 10px;
+  font-size: 12px;
+}
+.meal-open { background: #eee; color: #666; }
+.meal-admin-claimed { background: #e3f2fd; color: #1976d2; border: 2px solid #1976d2; }
+.meal-other { background: #e8f5e9; color: #388e3c; }
+.admin-meal-name { display: block; font-weight: 700; margin-bottom: 3px; }
+.admin-meal-status { display: block; font-size: 11px; margin-bottom: 4px; }
+.admin-claim-btn {
+  margin: 0 auto;
+  padding: 2px 10px;
+  font-size: 11px;
+  border-radius: 12px;
+  background: #1976d2;
+  color: #fff;
+  height: 24px;
+  line-height: 24px;
+}
+.admin-cancel-btn {
+  margin: 0 auto;
+  padding: 2px 10px;
+  font-size: 11px;
+  border-radius: 12px;
+  background: #fff;
+  color: #1976d2;
+  border: 1px solid #1976d2;
+  height: 24px;
+  line-height: 24px;
+}
+.admin-meal-taken { font-size: 11px; color: #999; }
 </style>

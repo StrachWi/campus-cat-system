@@ -266,7 +266,7 @@ onShow(() => { fetchCats(); if (viewMode.value === 'schedule') fetchSchedule(); 
 <style scoped>
 .container { min-height: 100vh; background-color: #f5f7fa; padding: 12px; }
 .search-area { display: flex; align-items: center; background-color: #ffffff; }
-.input-box { background-color: #aaffff; font-size: 14px; color: #333; padding: 8px; border-style: inset; border-width: 2px; margin-left: 5px; }
+.input-box { background-color: #ffffff; font-size: 14px; color: #000000; padding: 8px; border-style: inset; border-width: 2px; margin-left: 5px; }
 .search-box { background-color: #ff5500; font-size: 12px; color: #000000; }
 .top-action-bar { display: flex; justify-content: space-between; align-items: center; background-color: #fff; padding: 12px 16px; border-radius: 12px; margin-bottom: 0; box-shadow: 0 2px 8px rgba(0,0,0,0.03); }
 .top-action-bar2 { display: flex; justify-content: space-between; align-items: center; background-color: #fff; padding: 12px 16px; border-radius: 12px; margin-bottom: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.03); }

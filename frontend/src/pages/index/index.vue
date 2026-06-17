@@ -175,8 +175,7 @@ const fetchCats = () => {
 const getSegmentClass = (meal, cat) => {
   const claimer = cat.feed_status?.[meal];
   if (!claimer) return 'hungry';
-  // Check if claimer is admin — we check if claimer is a user_id that looks like admin
-  // No good way from frontend; just show as fed (green) for now; admin info comes from backend
+  if (cat.feed_admin?.[meal]) return 'fed-admin';
   return 'fed';
 };
 
@@ -295,6 +294,7 @@ onShow(() => { fetchCats(); if (viewMode.value === 'schedule') fetchSchedule(); 
 .progress-bar { display: flex; gap: 8px; }
 .segment { flex: 1; height: 24px; border-radius: 12px; display: flex; justify-content: center; align-items: center; font-size: 11px; font-weight: bold; }
 .fed { background-color: #67c23a; color: white; }
+.fed-admin { background-color: #e3f2fd; color: #1976d2; border: 2px solid #1976d2; }
 .hungry { background-color: #fde2e2; color: #f56c6c; }
 
 /* 历史排班 */

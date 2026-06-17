@@ -45,9 +45,10 @@ class User(db.Model):
     avatar_url = db.Column(db.String(255), default="")
     nickname = db.Column(db.String(50), default="")
     experience = db.Column(db.Integer, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.now)
 
     LEVEL_THRESHOLDS = [0, 50, 100, 200, 350, 850]
-    LEVEL_COLORS = ["#fff", "#4caf50", "#2196f3", "#9c27b0", "#f44336", "#ffd700"]
+    LEVEL_COLORS = ["#555", "#4caf50", "#2196f3", "#9c27b0", "#f44336", "#ffd700"]
 
     def compute_level(self):
         exp = self.experience or 0
@@ -83,6 +84,14 @@ class Cat(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"))  # 记录谁提报的
 
     def to_dict(self):
+        feed_admin = {}
+        for meal in ["morning", "noon", "evening"]:
+            claimer = getattr(self, f"{meal}_claimer") or ""
+            if claimer and claimer.isdigit():
+                u = User.query.get(int(claimer))
+                feed_admin[meal] = u.is_admin if u else False
+            else:
+                feed_admin[meal] = False
         return {
             "id": self.id,
             "name": self.name,
@@ -100,6 +109,7 @@ class Cat(db.Model):
                 "noon": self.noon_claimer,
                 "evening": self.evening_claimer,
             },
+            "feed_admin": feed_admin,
         }
 
 
@@ -323,6 +333,7 @@ def ensure_legacy_schema():
             "avatar_url": "ALTER TABLE users ADD COLUMN avatar_url VARCHAR(255) DEFAULT ''",
             "nickname": "ALTER TABLE users ADD COLUMN nickname VARCHAR(50) DEFAULT ''",
             "experience": "ALTER TABLE users ADD COLUMN experience INTEGER DEFAULT 0",
+            "created_at": "ALTER TABLE users ADD COLUMN created_at DATETIME",
         }
         for col, sql in user_migrations.items():
             if col not in user_cols:
@@ -973,6 +984,62 @@ def delete_user_account():
 
 
 #管理端
+
+# ===================== 管理员用户管理 API =====================
+
+@app.route("/api/admin/users", methods=["GET"])
+@require_admin
+def admin_get_users():
+    """管理员查看所有注册用户的基本信息"""
+    users = User.query.order_by(User.id.desc()).all()
+    result = []
+    for u in users:
+        # 上报记录（cat档案）
+        reported_cats = Cat.query.filter_by(user_id=u.id).all()
+        reported = [{
+            "cat_id": c.id,
+            "cat_name": c.name,
+            "audit_status": c.audit_status,
+        } for c in reported_cats]
+
+        # 投喂打卡记录
+        feeds = FeedingRecord.query.filter_by(user_id=u.id)\
+            .order_by(FeedingRecord.created_at.desc()).limit(20).all()
+        feeding_list = [f.to_dict() for f in feeds]
+
+        # 捐赠/账目记录
+        txns = LedgerTransaction.query.filter_by(user_id=u.id)\
+            .order_by(LedgerTransaction.created_at.desc()).all()
+        donation_list = [{
+            "id": t.id,
+            "desc": t.desc,
+            "amount": str(t.amount),
+            "type": t.type,
+            "date": t.created_at.strftime("%Y-%m-%d") if t.created_at else "",
+        } for t in txns]
+
+        result.append({
+            "id": u.id,
+            "username": u.username,
+            "password_hash": u.password,
+            "nickname": u.nickname or u.username,
+            "avatar_url": u.avatar_url or "",
+            "experience": u.experience or 0,
+            "level": u.compute_level(),
+            "level_color": u.LEVEL_COLORS[u.compute_level() - 1] if u.compute_level() <= 6 else "#555",
+            "is_admin": u.is_admin,
+            "created_at": u.created_at.strftime("%Y-%m-%d %H:%M") if u.created_at else "未知",
+            "report_count": len(reported),
+            "feed_count": len(feeds),
+            "donation_count": len(donation_list),
+            "reported_cats": reported,
+            "feeding_records": feeding_list[:5],
+            "donations": donation_list[:5],
+        })
+
+    return jsonify({"status": "success", "data": result})
+
+
 @app.route("/api/admin/login", methods=["POST"])
 def admin_login():
     data = request.get_json(silent=True) or {}

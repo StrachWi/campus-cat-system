@@ -1,6 +1,6 @@
 <template>
   <view class="detail-container">
-    <image class="cat-avatar" :src="formatImageUrl(catInfo?.avatar_url)" mode="aspectFill"></image>
+    <image class="main-image" :src="formatImageUrl(catInfo?.avatar_url)" mode="aspectFill"></image>
 
     <view class="info-section" v-if="catInfo.name">
       <view class="header-row">
@@ -59,7 +59,7 @@
 		</view>
 	</view>
 	
-	<footer class="float-bottom-btn">
+	<view class="float-bottom-btn">
 		<text>当前:{{mealNameMap[nowmeal]}}</text>
 		<view class="myinfo">
 		  <text v-if="!catInfo.feed_status[nowmeal]" class="meal-name1">还未有人来喂养</text>
@@ -69,32 +69,34 @@
 		<button v-if="!catInfo.feed_status[nowmeal]" class="action-btn claim-btn" @click="handleFeedAction(nowmeal,'claim')">认领后可喂养</button>
 		<button v-else-if="catInfo.feed_status[nowmeal] === myUserId" class="action-btn cancel-btn" @click="toggleDialog()">去喂养</button>
 		<button v-else class="action-btn disabled-btn" disabled>暂时不能喂养</button>
-	</footer>
+	</view>
   </view>
   
 	<view v-if="isDialogVisible" class="dialog-wrapper">
       <view class="dialog">
-        <h3>喂养提报</h3>
-        <form @submit.prevent="handleSubmit()">
-          <label>食物:</label>
+        <text class="dialog-title">喂养提报</text>
+        <view>
+          <text class="form-label">食物:</text>
 		  <input v-model="food" placeholder="输入食物或在下方选择" class="input-box" />
 		  <picker :value="foodtype" :range="foodlist" @change="onfoodch">
 			  <view class="picktype"> {{ foodlist[foodtype] }} </view>
 		  </picker>
-		  <label>是否喂水:
-		  <button type="button" :class=" ['check', checkbut ? 'ch-yes' : 'ch-no'] " @click="checkbut=!checkbut">{{checkbut ? '是' : '否'}}</button></label>
+		  <view class="water-row">
+        <text class="form-label">是否喂水:</text>
+		    <button :class=" ['check', checkbut ? 'ch-yes' : 'ch-no'] " @click="checkbut=!checkbut">{{checkbut ? '是' : '否'}}</button>
+      </view>
           <view class="actions">
-            <button type="submit" @click="handleSubmit()">提交</button>
-            <button type="button" @click="closeDialog()">取消</button>
+            <button @click="handleSubmit()">提交</button>
+            <button @click="closeDialog()">取消</button>
           </view>
-        </form>
+        </view>
       </view>
     </view>
   
 </template>
 
 <script setup>
-import { ref ,reactive, computed} from 'vue';
+import { ref } from 'vue';
 import { onLoad, onShow } from '@dcloudio/uni-app';
 import { config } from '@/config.js';
 
@@ -113,11 +115,6 @@ const foodtype = ref(0);
 const foodlist = ref([ '猫粮', '猫条', '零食']);
 const feedlist = ref([{username:'lihua',time:3,food:'猫条'}]);
 
-const checkwater = ()=>{
-	checkbut = !checkbut;
-	if(checkbut) water.value='是';
-	else water.value='否';
-};
 const toggleDialog = () => { isDialogVisible.value = true; };
 const closeDialog = () => {
   isDialogVisible.value = false;
@@ -198,12 +195,6 @@ const gettime = ()=>{
 	  }
 };
 
-const fed = computed(()=>{
-	const temp = feedlist.value.filter(rec =>{
-		return nowmeal.value===rec.time.value;
-	});
-});
-
 const onfoodch =(e) =>{
 	foodtype.value = e.detail.value;
 	food.value = foodlist.value[foodtype.value];
@@ -254,18 +245,11 @@ const formatImageUrl = (url) => {
 
 const fetchCatDetail = () => {
   uni.request({
-    url: `${config.baseUrl}/api/cats`, 
+    url: `${config.baseUrl}/api/cats/${catId.value}`,
     method: 'GET',
     success: (res) => {
       if(res.data.status === 'success') {
-        const allCats = res.data.data;
-        const targetCat = allCats.find(c => c.id == catId.value);
-        if (targetCat) {
-          if (targetCat.avatar_url && !targetCat.avatar_url.startsWith('http')) {
-            targetCat.avatar_url = config.baseUrl + targetCat.avatar_url;
-          }
-          catInfo.value = targetCat;
-        }
+        catInfo.value = res.data.data;
       }
     }
   });
@@ -274,7 +258,7 @@ const fetchCatDetail = () => {
 const fetchrecord=() =>{
 	uni.request({
 		url: `${config.baseUrl}/api/cats/${catId.value}/feeding`,
-		methon: 'GET',
+		method: 'GET',
 		success:(res) =>{
 			if(res.data.status == 'success') {
 				feedlist.value = res.data.data;
@@ -328,8 +312,8 @@ const handleFeedAction = (meal, action) => {
 </script>
 
 <style scoped>
-.detail-container { min-height: 100vh; background-color: #f8f9fa; padding-bottom: 50px; }
-.main-image { width: 100%; height: 260px; background-color: #eee; }
+.detail-container { min-height: 100vh; background-color: #f8f9fa; padding-bottom: 82px; }
+.main-image { width: 100%; height: 260px; background-color: #eee; display: block; }
 .info-section { background-color: #fff; padding: 20px; border-radius: 0 0 24px 24px; margin-bottom: 12px; }
 .header-row { display: flex; align-items: center; margin-bottom: 10px; }
 .cat-name { font-size: 24px; font-weight: bold; color: #333; margin-right: 10px; }
@@ -363,11 +347,11 @@ const handleFeedAction = (meal, action) => {
 .cancel-btn { background-color: #fff; color: #ff8c00; border: 1px solid #ff8c00; }
 .disabled-btn { background-color: #f5f5f5; color: #ccc; }
 .timeout-btn{background-color: #ff0000; color: #ff0000;}
-.float-bottom-btn {position:fixed; width: 100% ;display: flex; justify-content: space-around;bottom: 0px; z-index: 99;background-color: #aaffff;padding: 2 2px;  }
+.float-bottom-btn { position: fixed; left: 0; right: 0; bottom: 0; z-index: 99; display: flex; justify-content: space-around; align-items: center; background-color: #fff7e8; padding: 8px 10px; box-shadow: 0 -2px 10px rgba(0,0,0,0.06); box-sizing: border-box; }
 
 
 .picktype{background-color: #ff5500; padding: 0 12px; border-radius: 8px; font-size: 14px; color: #333; width: 25%;margin: 5px;}
-.input-box { background-color: #aaffff; font-size: 14px; color: #550000; padding: 8 8 px; border-style:inset; border-width:2px; width:90%;}
+.input-box { background-color: #f5f7fa; font-size: 14px; color: #333; padding: 8px; border-style: inset; border-width: 2px; width: 90%; box-sizing: border-box; }
 .check {font-size: 12px; color: #000000; width: 20%;}
 .ch-yes{ background-color: #ff5500;}
 .ch-no{background-color: #eee;}
@@ -377,6 +361,9 @@ const handleFeedAction = (meal, action) => {
   display: flex; justify-content: center; align-items: center;
 }
 .dialog { background: #fff; padding: 20px; border-radius: 8px; min-width: 300px; }
+.dialog-title { display: block; font-size: 18px; font-weight: 700; margin-bottom: 12px; color: #333; }
+.form-label { display: block; color: #555; font-size: 14px; margin: 8px 0 6px; }
+.water-row { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
 .actions button { margin-right: 10px; margin-top: 10px; }
 
 .feed-item{padding: 10px;display: flex; justify-content: space-between; align-items: center; background-color: #ffffff; padding: 12px; border-radius: 12px; border: 1px solid #f5f5f5;}

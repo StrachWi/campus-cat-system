@@ -964,6 +964,10 @@ def delete_user_account():
 
     # 清理关联数据：提报的猫解除关联、喂养记录删除
     Cat.query.filter_by(user_id=user.id).update({"user_id": None})
+    user_id_text = str(user.id)
+    Cat.query.filter_by(morning_claimer=user_id_text).update({"morning_claimer": ""})
+    Cat.query.filter_by(noon_claimer=user_id_text).update({"noon_claimer": ""})
+    Cat.query.filter_by(evening_claimer=user_id_text).update({"evening_claimer": ""})
     FeedingRecord.query.filter_by(user_id=user.id).delete()
     LedgerTransaction.query.filter_by(user_id=user.id).update({"user_id": None})
 

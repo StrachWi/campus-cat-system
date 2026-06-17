@@ -46,15 +46,15 @@
         <text class="fold-tip">点击展开/收起</text>
         <text :class="['fold-icon', isExpanded ? 'icon-rotated' : '']">▶</text>
       </view>
-      <div class="collapse-content" :class="{ 'is-expanded': isExpanded }">
-        <div class="content-inner">
+      <view class="collapse-content" :class="{ 'is-expanded': isExpanded }">
+        <view class="content-inner">
           <view class="cat-list">
-            <view class="cat-card" v-for="cat in catissued" :key="cat.catname">
+            <view class="cat-card" v-for="cat in catissued" :key="cat.cat_id || cat.cat_name">
               <view class="card-header">
                 <image class="cat-avatar" :src="formatImageUrl(cat.avatar_url)" mode="aspectFill"></image>
                 <view class="cat-info">
                   <view class="name-row">
-                    <text class="name">{{ cat.catname }}</text>
+                    <text class="name">{{ cat.cat_name }}</text>
                     <text :class="['audit-tag', getAuditClass(cat.audit_status)]">{{ getAuditText(cat.audit_status) }}</text>
                   </view>
                   <text class="location">📍 {{ cat.location }}</text>
@@ -63,8 +63,8 @@
               </view>
             </view>
           </view>
-        </div>
-      </div>
+        </view>
+      </view>
 
       <view class="menu-item" @click="showAccountModal = true">
         <view class="menu-left">
@@ -133,7 +133,7 @@
           <view class="claim-row" v-for="(cat, idx) in catissued" :key="idx">
             <image v-if="cat.avatar_url" class="claim-avatar" :src="formatImageUrl(cat.avatar_url)" mode="aspectFill"></image>
             <view class="claim-info">
-              <text class="claim-cat">{{ cat.catname }}</text>
+              <text class="claim-cat">{{ cat.cat_name }}</text>
               <text class="claim-meal">📍 {{ cat.location }}</text>
             </view>
             <text :class="['audit-tag-sm', getAuditClass(cat.audit_status)]">{{ getAuditText(cat.audit_status) }}</text>

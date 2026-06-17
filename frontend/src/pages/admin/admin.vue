@@ -25,7 +25,7 @@
         <view v-if="pendingCats.length === 0" class="empty-state">
           <text>当前没有待审核的猫咪档案</text>
         </view>
-        <view class="review-card" v-for="cat in pendingCats" :key="cat.id">
+        <view class="review-card" v-for="cat in pendingCats" :key="cat.id" @click="openDetailModal(cat)">
           <view class="cat-info-row">
             <image class="cat-avatar" :src="formatImageUrl(cat.avatar_url)" mode="aspectFill"></image>
             <view class="cat-details">
@@ -35,8 +35,8 @@
             </view>
           </view>
           <view class="action-row">
-            <button class="btn reject-btn" @click="handleReview(cat.id, 'reject')">打回删除</button>
-            <button class="btn pass-btn" @click="handleReview(cat.id, 'pass')">审核通过</button>
+            <button class="btn reject-btn" @click.stop="handleReview(cat.id, 'reject')">打回删除</button>
+            <button class="btn pass-btn" @click.stop="handleReview(cat.id, 'pass')">审核通过</button>
           </view>
         </view>
       </view>
@@ -45,7 +45,7 @@
         <view v-if="publishedCats.length === 0" class="empty-state">
           <text>暂无已发布猫咪</text>
         </view>
-        <view class="review-card" v-for="cat in publishedCats" :key="cat.id">
+        <view class="review-card" v-for="cat in publishedCats" :key="cat.id" @click="openDetailModal(cat)">
           <view class="cat-info-row">
             <image class="cat-avatar" :src="formatImageUrl(cat.avatar_url)" mode="aspectFill"></image>
             <view class="cat-details">
@@ -55,8 +55,8 @@
             </view>
           </view>
           <view class="action-row">
-            <button class="btn reject-btn" @click="handleDelete(cat.id)">下架并删除</button>
-            <button class="btn pass-btn" @click="openEditModal(cat)">修改信息</button>
+            <button class="btn reject-btn" @click.stop="handleDelete(cat.id)">下架并删除</button>
+            <button class="btn pass-btn" @click.stop="openEditModal(cat)">修改信息</button>
           </view>
         </view>
       </view>
@@ -172,6 +172,63 @@
         </view>
       </view>
     </view>
+
+    <!-- 猫咪详情弹窗 -->
+    <view class="modal-mask" v-if="showDetailModal" @click="showDetailModal = false">
+      <view class="detail-modal" @click.stop>
+        <image class="detail-avatar" :src="formatImageUrl(detailCat.avatar_url)" mode="aspectFill"></image>
+        <text class="detail-title">{{ detailCat.name || '未命名猫咪' }}</text>
+
+        <view class="detail-grid">
+          <view class="detail-item">
+            <text class="detail-label">毛色</text>
+            <text class="detail-value">{{ detailCat.color || '未填写' }}</text>
+          </view>
+          <view class="detail-item">
+            <text class="detail-label">性别</text>
+            <text class="detail-value">{{ detailCat.gender || '未知' }}</text>
+          </view>
+          <view class="detail-item">
+            <text class="detail-label">绝育状态</text>
+            <text class="detail-value">{{ detailCat.is_neutered ? '已绝育' : '未绝育' }}</text>
+          </view>
+          <view class="detail-item">
+            <text class="detail-label">审核状态</text>
+            <text :class="['detail-value', detailCat.audit_status === 'published' ? 'green' : 'red']">
+              {{ detailCat.audit_status === 'published' ? '已发布' : '待审核' }}
+            </text>
+          </view>
+        </view>
+
+        <view class="detail-field">
+          <text class="detail-label">常驻地点</text>
+          <text class="detail-value">{{ detailCat.location || '未填写' }}</text>
+        </view>
+        <view class="detail-field">
+          <text class="detail-label">性格特征</text>
+          <text class="detail-value">{{ detailCat.character_desc || '未填写' }}</text>
+        </view>
+        <view class="detail-field">
+          <text class="detail-label">健康状况</text>
+          <text class="detail-value">{{ detailCat.health_status || '未填写' }}</text>
+        </view>
+        <view class="detail-field">
+          <text class="detail-label">提报人ID</text>
+          <text class="detail-value">{{ detailCat.user_id || '未知' }}</text>
+        </view>
+
+        <view class="detail-feed">
+          <text class="detail-label">🐱 喂养认领状态</text>
+          <view class="feed-row">
+            <text>早餐：{{ detailCat.feed_status?.morning || '无人认领' }}</text>
+            <text>午餐：{{ detailCat.feed_status?.noon || '无人认领' }}</text>
+            <text>晚餐：{{ detailCat.feed_status?.evening || '无人认领' }}</text>
+          </view>
+        </view>
+
+        <button class="primary-button" @click="showDetailModal = false" style="margin-top:16px;">关闭</button>
+      </view>
+    </view>
   </view>
 </template>
 
@@ -197,6 +254,8 @@ const bankList = ref([]);
 const balance = ref('0.00');
 const showEditModal = ref(false);
 const editForm = ref({ id: '', name: '', location: '', character_desc: '' });
+const showDetailModal = ref(false);
+const detailCat = ref({});
 
 const goodsForm = reactive({
   operate: 1,
@@ -337,6 +396,11 @@ const openEditModal = (cat) => {
     character_desc: cat.character_desc || '',
   };
   showEditModal.value = true;
+};
+
+const openDetailModal = (cat) => {
+  detailCat.value = cat;
+  showDetailModal.value = true;
 };
 
 const submitEdit = async () => {
@@ -803,4 +867,83 @@ onShow(() => {
   font-weight: 700;
   margin-bottom: 16px;
 }
+
+/* ===== 猫咪详情弹窗 ===== */
+.detail-modal {
+  width: 88%;
+  max-height: 85vh;
+  background: #fff;
+  border-radius: 14px;
+  padding: 20px;
+  overflow-y: auto;
+}
+
+.detail-avatar {
+  width: 100%;
+  height: 220px;
+  border-radius: 12px;
+  background: #eee;
+  margin-bottom: 14px;
+}
+
+.detail-title {
+  display: block;
+  text-align: center;
+  font-size: 22px;
+  font-weight: 800;
+  color: #222;
+  margin-bottom: 16px;
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.detail-item {
+  background: #f5f7fa;
+  border-radius: 10px;
+  padding: 12px;
+}
+
+.detail-field {
+  background: #f5f7fa;
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 10px;
+}
+
+.detail-label {
+  display: block;
+  font-size: 12px;
+  color: #999;
+  margin-bottom: 5px;
+}
+
+.detail-value {
+  font-size: 15px;
+  color: #333;
+  font-weight: 600;
+}
+
+.detail-feed {
+  background: #fff8e1;
+  border-radius: 10px;
+  padding: 12px;
+  margin-top: 4px;
+}
+
+.feed-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 14px;
+  color: #555;
+}
+
+.green { color: #2fb344; }
+.red { color: #e03131; }
 </style>

@@ -41,6 +41,8 @@ class User(db.Model):
     username = db.Column(db.String(50), unique=True, nullable=False)
     password = db.Column(db.String(255), nullable=False)
     is_admin = db.Column(db.Boolean, default=False)
+    avatar_url = db.Column(db.String(255), default="")
+    nickname = db.Column(db.String(50), default="")
 
 
 class Cat(db.Model):
@@ -276,21 +278,33 @@ def require_admin(func):
 
 
 def ensure_legacy_schema():
-    """Keep old SQLite databases compatible after adding ledger columns."""
+    """Keep old SQLite databases compatible after adding ledger / user columns."""
     inspector = inspect(db.engine)
-    if not inspector.has_table("ledger_inventory"):
-        return
 
-    columns = {column["name"] for column in inspector.get_columns("ledger_inventory")}
-    migrations = {
-        "unit": "ALTER TABLE ledger_inventory ADD COLUMN unit VARCHAR(10)",
-        "quantity": "ALTER TABLE ledger_inventory ADD COLUMN quantity FLOAT DEFAULT 0",
-        "alert_threshold": "ALTER TABLE ledger_inventory ADD COLUMN alert_threshold FLOAT DEFAULT 0",
-        "updated_at": "ALTER TABLE ledger_inventory ADD COLUMN updated_at DATETIME",
-    }
-    for column, sql in migrations.items():
-        if column not in columns:
-            db.session.execute(text(sql))
+    # --- ledger_inventory 迁移 ---
+    if inspector.has_table("ledger_inventory"):
+        columns = {column["name"] for column in inspector.get_columns("ledger_inventory")}
+        migrations = {
+            "unit": "ALTER TABLE ledger_inventory ADD COLUMN unit VARCHAR(10)",
+            "quantity": "ALTER TABLE ledger_inventory ADD COLUMN quantity FLOAT DEFAULT 0",
+            "alert_threshold": "ALTER TABLE ledger_inventory ADD COLUMN alert_threshold FLOAT DEFAULT 0",
+            "updated_at": "ALTER TABLE ledger_inventory ADD COLUMN updated_at DATETIME",
+        }
+        for column, sql in migrations.items():
+            if column not in columns:
+                db.session.execute(text(sql))
+
+    # --- users 迁移：avatar_url / nickname ---
+    if inspector.has_table("users"):
+        user_cols = {col["name"] for col in inspector.get_columns("users")}
+        user_migrations = {
+            "avatar_url": "ALTER TABLE users ADD COLUMN avatar_url VARCHAR(255) DEFAULT ''",
+            "nickname": "ALTER TABLE users ADD COLUMN nickname VARCHAR(50) DEFAULT ''",
+        }
+        for col, sql in user_migrations.items():
+            if col not in user_cols:
+                db.session.execute(text(sql))
+
     db.session.commit()
 
 
@@ -372,7 +386,7 @@ def register():
         return jsonify({"status": "error", "message": "该账号已被注册"})
 
     hashed_password = generate_password_hash(password)
-    new_user = User(username=username, password=hashed_password)
+    new_user = User(username=username, password=hashed_password, nickname=username)
 
     db.session.add(new_user)
     db.session.commit()
@@ -607,6 +621,118 @@ def get_user_issued_cats():
             for cat in cats
         ],
     })
+
+# ===================== 用户个人中心 API =====================
+
+@app.route("/api/user/profile", methods=["GET", "PUT"])
+def handle_user_profile():
+    """获取或更新用户个人资料"""
+    if request.method == "GET":
+        user_id = request.args.get("user_id", type=int)
+        if not user_id:
+            return jsonify({"status": "error", "message": "missing user_id"}), 400
+        user = User.query.get_or_404(user_id)
+        return jsonify({
+            "status": "success",
+            "data": {
+                "id": user.id,
+                "username": user.username,
+                "nickname": user.nickname or user.username,
+                "avatar_url": user.avatar_url or "",
+            }
+        })
+
+    if request.method == "PUT":
+        data = request.json or {}
+        user_id = data.get("user_id")
+        if not user_id:
+            return jsonify({"status": "error", "message": "missing user_id"}), 400
+        user = User.query.get_or_404(int(user_id))
+        if "nickname" in data and data["nickname"].strip():
+            user.nickname = data["nickname"].strip()
+        db.session.commit()
+        return jsonify({"status": "success"})
+
+
+@app.route("/api/user/avatar", methods=["POST"])
+def upload_user_avatar():
+    """上传用户头像（支持裁剪后的图片）"""
+    user_id = request.form.get("user_id")
+    if not user_id:
+        return jsonify({"status": "error", "message": "missing user_id"}), 400
+    user = User.query.get_or_404(int(user_id))
+
+    uploaded_url = save_uploaded_image("image")
+    if not uploaded_url:
+        return jsonify({"status": "error", "message": "未选择文件"}), 400
+
+    # 删除旧头像文件（仅当是本地文件时）
+    if user.avatar_url and "/api/uploads/" in user.avatar_url:
+        old_filename = user.avatar_url.rsplit("/", 1)[-1]
+        old_path = os.path.join(app.config["UPLOAD_FOLDER"], old_filename)
+        if os.path.exists(old_path):
+            os.remove(old_path)
+
+    user.avatar_url = uploaded_url
+    db.session.commit()
+    return jsonify({"status": "success", "avatar_url": uploaded_url})
+
+
+@app.route("/api/user/password", methods=["PUT"])
+def change_user_password():
+    """修改用户密码（需验证原密码）"""
+    data = request.json or {}
+    user_id = data.get("user_id")
+    old_password = data.get("old_password")
+    new_password = data.get("new_password")
+
+    if not all([user_id, old_password, new_password]):
+        return jsonify({"status": "error", "message": "缺少必填项：user_id, old_password, new_password"}), 400
+
+    if len(new_password) < 6:
+        return jsonify({"status": "error", "message": "新密码至少6位"}), 400
+
+    user = User.query.get_or_404(int(user_id))
+
+    if not check_password_hash(user.password, old_password):
+        return jsonify({"status": "error", "message": "原密码错误"}), 403
+
+    user.password = generate_password_hash(new_password)
+    db.session.commit()
+    return jsonify({"status": "success", "message": "密码修改成功"})
+
+
+@app.route("/api/user/account", methods=["DELETE"])
+def delete_user_account():
+    """注销账号（需验证密码）"""
+    data = request.json or {}
+    user_id = data.get("user_id")
+    password = data.get("password")
+
+    if not all([user_id, password]):
+        return jsonify({"status": "error", "message": "缺少必填项：user_id, password"}), 400
+
+    user = User.query.get_or_404(int(user_id))
+
+    if not check_password_hash(user.password, password):
+        return jsonify({"status": "error", "message": "密码错误，无法注销"}), 403
+
+    # 删除用户头像文件
+    if user.avatar_url and "/api/uploads/" in user.avatar_url:
+        old_filename = user.avatar_url.rsplit("/", 1)[-1]
+        old_path = os.path.join(app.config["UPLOAD_FOLDER"], old_filename)
+        if os.path.exists(old_path):
+            os.remove(old_path)
+
+    # 清理关联数据：提报的猫解除关联、喂养记录删除
+    Cat.query.filter_by(user_id=user.id).update({"user_id": None})
+    FeedingRecord.query.filter_by(user_id=user.id).delete()
+    LedgerTransaction.query.filter_by(user_id=user.id).update({"user_id": None})
+
+    db.session.delete(user)
+    db.session.commit()
+    return jsonify({"status": "success", "message": "账号已注销"})
+
 
 #管理端
 @app.route("/api/admin/login", methods=["POST"])
